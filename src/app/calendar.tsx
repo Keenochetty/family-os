@@ -1,7 +1,8 @@
-import type { JSX } from "react";
-import { useMemo, useState } from "react";
+import type { JSX, ReactNode } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -10,6 +11,9 @@ import {
   TextInput,
   useColorScheme,
   View,
+  type StyleProp,
+  type TextStyle,
+  type ViewStyle,
 } from "react-native";
 import Animated, {
   interpolate,
@@ -17,7 +21,7 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
 } from "react-native-reanimated";
-import { BottomSheet, Button, Menu } from "heroui-native";
+import { Menu as HeroMenu } from "heroui-native";
 import Svg, { Path } from "react-native-svg";
 
 import { PageShell } from "@/components/PageShell";
@@ -41,6 +45,179 @@ const WEEK_HEIGHT = 120;
 const STICKY_WEEK_TOP = 104;
 const NOTE_STICK_SCROLL_Y = 228;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+type LocalButtonProps = {
+  children: ReactNode;
+  disabled?: boolean;
+  onPress?: () => void;
+  size?: "sm" | "md";
+  style?: StyleProp<ViewStyle>;
+  variant?: "primary" | "secondary" | "tertiary" | "ghost" | "danger" | "danger-soft";
+};
+
+type LocalLabelProps = {
+  children: ReactNode;
+  style?: StyleProp<TextStyle>;
+};
+
+type SheetContextValue = {
+  onOpenChange: (open: boolean) => void;
+};
+
+const SheetContext = createContext<SheetContextValue | null>(null);
+
+function useSheetContext(): SheetContextValue {
+  const context = useContext(SheetContext);
+
+  if (!context) {
+    return { onOpenChange: () => undefined };
+  }
+
+  return context;
+}
+
+function LocalButtonBase({ children, disabled, onPress, style, variant }: LocalButtonProps): JSX.Element {
+  return (
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.localButton,
+        variant === "ghost" && styles.localButtonGhost,
+        variant === "danger" && styles.localButtonDanger,
+        variant === "danger-soft" && styles.localButtonDangerSoft,
+        pressed && !disabled && styles.localButtonPressed,
+        disabled && styles.localButtonDisabled,
+        style,
+      ]}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
+function LocalButtonLabel({ children, style }: LocalLabelProps): JSX.Element {
+  return <Text style={style}>{children}</Text>;
+}
+
+const Button = Object.assign(LocalButtonBase, { Label: LocalButtonLabel });
+
+function LocalBottomSheetRoot({
+  children,
+  isOpen,
+  onOpenChange,
+}: {
+  children: ReactNode;
+  isOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  presentation?: "bottom-sheet";
+}): JSX.Element | null {
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <SheetContext.Provider value={{ onOpenChange: onOpenChange ?? (() => undefined) }}>
+      <Modal animationType="fade" onRequestClose={() => onOpenChange?.(false)} transparent visible>
+        <View style={styles.localModalRoot}>{children}</View>
+      </Modal>
+    </SheetContext.Provider>
+  );
+}
+
+function LocalPortal({ children }: { children: ReactNode }): JSX.Element {
+  return <>{children}</>;
+}
+
+function LocalOverlay({ style }: { style?: StyleProp<ViewStyle> }): JSX.Element {
+  const { onOpenChange } = useSheetContext();
+
+  return <Pressable onPress={() => onOpenChange(false)} style={[styles.localOverlay, style]} />;
+}
+
+function LocalSheetContent({
+  backgroundStyle,
+  children,
+  contentContainerProps,
+}: {
+  backgroundStyle?: StyleProp<ViewStyle>;
+  children: ReactNode;
+  contentContainerProps?: { style?: StyleProp<ViewStyle> };
+  enablePanDownToClose?: boolean;
+  presentation?: "bottom-sheet";
+}): JSX.Element {
+  return (
+    <View pointerEvents="box-none" style={styles.localSheetDock}>
+      <View style={[styles.localSheetSurface, backgroundStyle]}>
+        <View style={contentContainerProps?.style}>{children}</View>
+      </View>
+    </View>
+  );
+}
+
+function LocalSheetClose({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }): JSX.Element {
+  const { onOpenChange } = useSheetContext();
+
+  return (
+    <Pressable onPress={() => onOpenChange(false)} style={style}>
+      {children}
+    </Pressable>
+  );
+}
+
+function LocalSheetTitle({ children, style }: { children: ReactNode; style?: StyleProp<TextStyle> }): JSX.Element {
+  return <Text style={style}>{children}</Text>;
+}
+
+const BottomSheet = Object.assign(LocalBottomSheetRoot, {
+  Close: LocalSheetClose,
+  Content: LocalSheetContent,
+  Overlay: LocalOverlay,
+  Portal: LocalPortal,
+  Title: LocalSheetTitle,
+});
+
+function LocalMenuItem({
+  children,
+  onPress,
+  variant,
+}: {
+  children: ReactNode;
+  onPress?: () => void;
+  variant?: "danger";
+}): JSX.Element {
+  const { onOpenChange } = useSheetContext();
+
+  return (
+    <Pressable
+      onPress={() => {
+        onPress?.();
+        onOpenChange(false);
+      }}
+      style={({ pressed }) => [styles.menuItem, variant === "danger" && styles.menuItemDanger, pressed && styles.localButtonPressed]}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
+function LocalMenuItemTitle({ children }: { children: ReactNode }): JSX.Element {
+  const isDark = useColorScheme() === "dark";
+
+  return <Text style={[styles.menuItemTitle, { color: isDark ? "#f8fafc" : "#0f172a" }]}>{children}</Text>;
+}
+
+function LocalMenuLabel({ children, style }: { children: ReactNode; style?: StyleProp<TextStyle> }): JSX.Element {
+  return <Text style={style}>{children}</Text>;
+}
+
+const Menu = Object.assign(LocalBottomSheetRoot, {
+  Content: LocalSheetContent,
+  Item: Object.assign(LocalMenuItem, { Title: LocalMenuItemTitle }),
+  ItemTitle: LocalMenuItemTitle,
+  Label: LocalMenuLabel,
+  Overlay: LocalOverlay,
+  Portal: LocalPortal,
+});
 
 type DayCell = {
   date: Date;
@@ -82,14 +259,56 @@ const quickActions: { label: string; type: HealthCalendarEventType; title: strin
   { label: "Add family reminder", type: "family", title: "Family reminder" },
 ];
 
-const calendarMenuItems = [
-  "Calendar settings",
-  "Calendar history",
-  "Plan later",
-  "Manage event types",
-  "Sync settings",
-  "Notification settings",
-  "Shared calendar permissions",
+type CalendarMenuItem = {
+  description: string;
+  label: string;
+  mode: SheetMode;
+  tone: string;
+};
+
+const calendarMenuItems: CalendarMenuItem[] = [
+  {
+    description: "Default view, reminders, overlays",
+    label: "Calendar settings",
+    mode: "settings",
+    tone: "#38bdf8",
+  },
+  {
+    description: "Edits, attended, postponed, cancelled",
+    label: "Calendar history",
+    mode: "history",
+    tone: "#a78bfa",
+  },
+  {
+    description: "Events waiting for a new date",
+    label: "Plan later",
+    mode: "planLater",
+    tone: "#14b8a6",
+  },
+  {
+    description: "Colors and categories for health tasks",
+    label: "Manage event types",
+    mode: "settings",
+    tone: "#fb923c",
+  },
+  {
+    description: "Connected calendars and imports",
+    label: "Sync settings",
+    mode: "settings",
+    tone: "#64748b",
+  },
+  {
+    description: "Alert timing and quiet hours",
+    label: "Notification settings",
+    mode: "settings",
+    tone: "#ef4444",
+  },
+  {
+    description: "Family access and shared visibility",
+    label: "Shared calendar permissions",
+    mode: "settings",
+    tone: "#22c55e",
+  },
 ];
 
 const settingsItems = [
@@ -374,7 +593,7 @@ export default function CalendarScreen(): JSX.Element {
       ...current,
       title,
       type,
-      date: current.date || selectedDateKey,
+      date: current.date,
     }));
     setSheetMode("form");
   }
@@ -760,34 +979,23 @@ export default function CalendarScreen(): JSX.Element {
       </CalendarSheet>
 
       <CalendarSheet visible={sheetMode === "calendarMenu"} onClose={() => setSheetMode("none")} title="Calendar menu">
-        {calendarMenuItems.map((item) => (
-          <Button
-            key={item}
-            onPress={() => {
-              if (item === "Calendar settings") {
-                setSheetMode("settings");
-                return;
-              }
-
-              if (item === "Calendar history") {
-                setSheetMode("history");
-                return;
-              }
-
-              if (item === "Plan later") {
-                setSheetMode("planLater");
-                return;
-              }
-
-              setSheetMode("settings");
-            }}
-            style={[styles.sheetAction, { borderColor: theme.faint }]}
-            variant="ghost"
-          >
-            <View style={[styles.sheetActionDot, { backgroundColor: theme.selected }]} />
-            <Button.Label style={[styles.sheetActionText, { color: theme.text }]}>{item}</Button.Label>
-          </Button>
-        ))}
+        <View style={styles.calendarMenuList}>
+          {calendarMenuItems.map((item) => (
+            <Button
+              key={item.label}
+              onPress={() => setSheetMode(item.mode)}
+              style={[styles.calendarMenuAction, { borderColor: theme.faint }]}
+              variant="ghost"
+            >
+              <View style={[styles.calendarMenuDot, { backgroundColor: item.tone }]} />
+              <View style={styles.calendarMenuTextGroup}>
+                <Button.Label style={[styles.calendarMenuTitle, { color: theme.text }]}>{item.label}</Button.Label>
+                <Text style={[styles.calendarMenuMeta, { color: theme.muted }]}>{item.description}</Text>
+              </View>
+              <Text style={[styles.calendarMenuArrow, { color: theme.muted }]}>›</Text>
+            </Button>
+          ))}
+        </View>
       </CalendarSheet>
 
       <CalendarSheet visible={sheetMode === "settings"} onClose={() => setSheetMode("none")} title="Calendar settings">
@@ -987,28 +1195,38 @@ export default function CalendarScreen(): JSX.Element {
       </CalendarSheet>
 
       {sheetMode === "dayQuickActions" ? (
-        <Menu
-          isOpen
-          onOpenChange={(open) => !open && setSheetMode("none")}
-          presentation="bottom-sheet"
-        >
-          <Menu.Portal>
-            <Menu.Overlay style={styles.modalScrim} />
-            <Menu.Content
+        <HeroMenu isOpen onOpenChange={(open) => !open && setSheetMode("none")} presentation="bottom-sheet">
+          <HeroMenu.Portal>
+            <HeroMenu.Overlay style={styles.modalScrim} />
+            <HeroMenu.Content
               backgroundStyle={[styles.menuSheetBackground, { backgroundColor: theme.panel, borderColor: theme.faint }]}
               contentContainerProps={{ style: styles.menuSheetContent }}
               presentation="bottom-sheet"
             >
-              <Menu.Label style={[styles.quickEventTitle, { color: theme.text }]}>{formatFullDate(form.date)}</Menu.Label>
-              {quickActions.map((action) => (
-                <Menu.Item key={action.label} onPress={() => openForm(action.type, action.title)}>
-                  <View style={[styles.sheetActionDot, { backgroundColor: eventTypeMeta[action.type].color }]} />
-                  <Menu.ItemTitle>{action.label}</Menu.ItemTitle>
-                </Menu.Item>
-              ))}
-            </Menu.Content>
-          </Menu.Portal>
-        </Menu>
+              <HeroMenu.Label style={[styles.quickEventTitle, { color: theme.text }]}>{formatFullDate(form.date)}</HeroMenu.Label>
+              <HeroMenu.Item shouldCloseOnSelect={false} onPress={() => openForm("general", "New event")}>
+                <View style={[styles.sheetActionDot, { backgroundColor: eventTypeMeta.general.color }]} />
+                <HeroMenu.ItemTitle>Add event</HeroMenu.ItemTitle>
+              </HeroMenu.Item>
+              {quickActions
+                .filter((action) => ["medication", "cycle", "fitness", "meal_plan"].includes(action.type))
+                .map((action) => (
+                  <HeroMenu.Item key={action.label} shouldCloseOnSelect={false} onPress={() => openForm(action.type, action.title)}>
+                    <View style={[styles.sheetActionDot, { backgroundColor: eventTypeMeta[action.type].color }]} />
+                    <HeroMenu.ItemTitle>{action.label}</HeroMenu.ItemTitle>
+                  </HeroMenu.Item>
+                ))}
+              <HeroMenu.Item shouldCloseOnSelect={false} onPress={() => openForm("appointment", "Appointment")}>
+                <View style={[styles.sheetActionDot, { backgroundColor: eventTypeMeta.appointment.color }]} />
+                <HeroMenu.ItemTitle>Add appointment</HeroMenu.ItemTitle>
+              </HeroMenu.Item>
+              <HeroMenu.Item shouldCloseOnSelect={false} onPress={() => openForm("family", "Family reminder")}>
+                <View style={[styles.sheetActionDot, { backgroundColor: eventTypeMeta.family.color }]} />
+                <HeroMenu.ItemTitle>Add family reminder</HeroMenu.ItemTitle>
+              </HeroMenu.Item>
+            </HeroMenu.Content>
+          </HeroMenu.Portal>
+        </HeroMenu>
       ) : null}
 
       {sheetMode === "eventQuickActions" ? (
@@ -1322,7 +1540,63 @@ function OptionRow({
 }
 
 const styles = StyleSheet.create({
-  screen: {
+  localModalRoot: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  localOverlay: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  localSheetDock: {
+    flex: 1,
+    justifyContent: "flex-end",
+    pointerEvents: "box-none",
+  },
+  localSheetSurface: {
+    maxHeight: "86%",
+    overflow: "hidden",
+  },
+  localButton: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  localButtonGhost: {
+    backgroundColor: "transparent",
+  },
+  localButtonDanger: {
+    backgroundColor: "#fee2e2",
+  },
+  localButtonDangerSoft: {
+    backgroundColor: "#fee2e2",
+  },
+  localButtonPressed: {
+    opacity: 0.72,
+  },
+  localButtonDisabled: {
+    opacity: 0.45,
+  },
+  menuItem: {
+    alignItems: "center",
+    borderRadius: 14,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 48,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+  },
+  menuItemDanger: {
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+  },
+  menuItemTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: 0,
+  },  screen: {
     flex: 1,
     paddingHorizontal: 12,
     paddingTop: 54,
@@ -1755,7 +2029,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: "row",
     gap: 12,
+    justifyContent: "flex-start",
     paddingVertical: 14,
+    width: "100%",
   },
   sheetActionDot: {
     borderRadius: 5,
@@ -1811,7 +2087,47 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
   },
-  settingRow: {
+  calendarMenuList: {
+    gap: 8,
+  },
+  calendarMenuAction: {
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderRadius: 14,
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "flex-start",
+    minHeight: 62,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    width: "100%",
+  },
+  calendarMenuDot: {
+    borderRadius: 6,
+    height: 12,
+    width: 12,
+  },
+  calendarMenuTextGroup: {
+    flex: 1,
+    minWidth: 0,
+  },
+  calendarMenuTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+    letterSpacing: 0,
+  },
+  calendarMenuMeta: {
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  calendarMenuArrow: {
+    fontSize: 24,
+    fontWeight: "500",
+    lineHeight: 26,
+  },  settingRow: {
     alignItems: "center",
     borderBottomWidth: 1,
     flexDirection: "row",
@@ -1990,8 +2306,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 0,
     marginBottom: 8,
-  },
-  formField: {
+  },  formField: {
     marginBottom: 13,
   },
   formLabel: {
