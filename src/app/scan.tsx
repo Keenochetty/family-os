@@ -2,6 +2,6 @@ import type { JSX } from "react";
 
 import { PageShell } from "@/components/PageShell";
 
-export default function HomeScreen(): JSX.Element {
+export default function ScanScreen(): JSX.Element {
   return <PageShell />;
 }
