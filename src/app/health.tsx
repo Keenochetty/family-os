@@ -8,7 +8,7 @@ export default function HealthScreen(): JSX.Element {
   return (
     <PageShell>
       <View style={styles.screen}>
-        <HealthControlWidget framed={false} title="Health Control" subtitle="Your modular health board" />
+        <HealthControlWidget framed={false} title="Health" subtitle="Your modular health board" />
       </View>
     </PageShell>
   );
