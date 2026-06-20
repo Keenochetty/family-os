@@ -1,4 +1,4 @@
-import { router, usePathname } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import type { JSX } from "react";
 import { useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, useColorScheme, View } from "react-native";
@@ -115,6 +115,7 @@ function NavButton({
   selected,
   activeIconColor,
   inactiveIconColor,
+  onPress,
   onPressIn,
   onPressOut,
 }: {
@@ -123,6 +124,7 @@ function NavButton({
   selected: boolean;
   activeIconColor: string;
   inactiveIconColor: string;
+  onPress: () => void;
   onPressIn: () => void;
   onPressOut: () => void;
 }): JSX.Element {
@@ -142,7 +144,8 @@ function NavButton({
       accessibilityRole="button"
       accessibilityLabel={item.label}
       accessibilityState={{ selected }}
-      onPress={() => router.push(item.href)}
+      hitSlop={8}
+      onPress={onPress}
       onPressIn={onPressIn}
       onPressOut={onPressOut}
       style={styles.navButton}
@@ -157,6 +160,7 @@ function NavButton({
 
 export function FloatingNav(): JSX.Element {
   const pathname = usePathname();
+  const appRouter = useRouter();
   const [pressedHref, setPressedHref] = useState<NavItem["href"] | null>(null);
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -167,6 +171,10 @@ export function FloatingNav(): JSX.Element {
 
   const overrideHref = pressedHref !== null && !isActive(pathname, pressedHref) ? pressedHref : null;
 
+  function handleNavPress(href: NavItem["href"]): void {
+    setPressedHref(null);
+    appRouter.replace(href);
+  }
 
   return (
     <View pointerEvents="box-none" style={styles.wrap}>
@@ -182,8 +190,9 @@ export function FloatingNav(): JSX.Element {
               inactiveIconColor={inactiveColor}
               item={item}
               key={item.href}
+              onPress={() => handleNavPress(item.href)}
               onPressIn={() => setPressedHref(item.href)}
-              onPressOut={() => undefined}
+              onPressOut={() => setPressedHref(null)}
               selected={active}
             />
           );
@@ -217,6 +226,8 @@ const styles = StyleSheet.create({
     left: 16,
     position: "absolute",
     right: 16,
+    elevation: 100,
+    zIndex: 100,
   },
   glassBar: {
     ...glassSurface,

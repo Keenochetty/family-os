@@ -1,9 +1,26 @@
 import type { JSX } from "react";
 import { Fragment, useCallback, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, useColorScheme, useWindowDimensions, View, type StyleProp, type ViewStyle } from "react-native";
-import { useFocusEffect, useRouter, type Href } from "expo-router";
+import { Pressable, ScrollView, StyleSheet, Text, useColorScheme, useWindowDimensions, View, type StyleProp, type ViewStyle } from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Menu } from "heroui-native";
 import Svg, { Circle, Line, Path, Polyline, Rect, Text as SvgText } from "react-native-svg";
+
+import {
+  DEFAULT_HEALTH_WIDGET_SLOTS,
+  DEFAULT_NUTRITION_CONSUMPTION_ITEMS,
+  DEFAULT_WEEKLY_GOAL_DAYS,
+  getHealthFocusDefinition,
+  getHealthFocusDisplayData,
+  getHealthFocusGroups,
+  type HealthFocusDataContext,
+  type HealthFocusDefinition,
+  type HealthFocusDisplayData,
+  type HealthTileVisualType,
+  type HealthVisualData,
+  type HealthWidgetSlot,
+  type NutritionConsumptionItem,
+  type WeeklyGoalDay,
+} from "@/lib/healthFocusRegistry";
 
 export type HealthRealmId =
   | "general"
@@ -22,50 +39,11 @@ export type RealmProgressType = "ring" | "line" | "empty";
 export type RealmTilePosition = "today" | "upcoming" | "attention" | "family";
 type TileShapePosition = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 type TileColumn = "left" | "right";
-export type TopicVisualType =
-  | "pillCount"
-  | "scheduleDots"
-  | "alertStack"
-  | "familyBubbles"
-  | "fitnessBars"
-  | "mealDots"
-  | "moodWave"
-  | "nutritionGoalRing"
-  | "sparkline"
-  | "sleepBars"
-  | "progressRing";
-
-export type WeeklyGoalDay = {
-  day: "M" | "T" | "W" | "T2" | "F" | "S" | "S2";
-  planned: boolean;
-  completed: boolean;
-};
-
-export type NutritionConsumptionItem = {
-  id: string;
-  label: string;
-  icon: "bowl" | "smoothie";
-  consumed: boolean;
-  color?: string;
-};
+export type TopicVisualType = HealthTileVisualType;
 
 type NormalizedNutritionConsumptionItem = NutritionConsumptionItem & { color: string };
 
-export type HealthRealmDefinition = {
-  id: HealthRealmId;
-  label: string;
-  icon: string;
-  route: Href;
-  accentColor: string;
-  lightTileBackground: string;
-  darkTileBackground: string;
-  progressType: RealmProgressType;
-  defaultPrimaryStat: string;
-  defaultSecondaryStatus: string;
-  defaultProgress: number;
-  visible: boolean;
-  permissionGate?: string;
-};
+export type HealthRealmDefinition = HealthFocusDefinition;
 
 export type HealthRealmTile = {
   id: HealthRealmId;
@@ -81,12 +59,15 @@ export type HealthRealmTile = {
   lineData?: number[];
   weeklyGoalDays?: WeeklyGoalDay[];
   nutritionConsumptionItems?: NutritionConsumptionItem[];
+  focusId?: string;
 };
 
 export type HealthRealmBoardProps = {
   title?: string;
   subtitle?: string;
   tiles?: HealthRealmTile[];
+  selectedFocusSlots?: HealthWidgetSlot[];
+  focusContext?: HealthFocusDataContext;
   framed?: boolean;
   style?: StyleProp<ViewStyle>;
   onRealmPress?: (realm: HealthRealmDefinition) => void;
@@ -109,20 +90,8 @@ type TileDetailLayout = {
 
 const TILE_BOARD_ASPECT_RATIO = 1574.92 / 1322.5;
 const GUIDE_VIEWBOX = { height: 1324.14, width: 1575.1 };
-const DEFAULT_TILE_IDS: HealthRealmId[] = ["medication", "fitness", "nutrition", "mentalHealth"];
 const NUTRITION_CONSUMED_COLOR = "#35A96B";
 const NUTRITION_PENDING_COLOR = "#9CA3AF";
-const DEFAULT_NUTRITION_CONSUMPTION_ITEMS: NutritionConsumptionItem[] = [
-  { color: NUTRITION_CONSUMED_COLOR, consumed: true, icon: "bowl", id: "breakfast", label: "Breakfast" },
-  { color: NUTRITION_CONSUMED_COLOR, consumed: true, icon: "smoothie", id: "morning-smoothie", label: "Morning smoothie" },
-  { color: NUTRITION_CONSUMED_COLOR, consumed: true, icon: "bowl", id: "snack-bowl", label: "Snack bowl" },
-  { color: NUTRITION_CONSUMED_COLOR, consumed: true, icon: "smoothie", id: "green-smoothie", label: "Green smoothie" },
-  { color: NUTRITION_CONSUMED_COLOR, consumed: false, icon: "bowl", id: "lunch", label: "Lunch" },
-  { color: NUTRITION_CONSUMED_COLOR, consumed: false, icon: "smoothie", id: "protein-smoothie", label: "Protein smoothie" },
-  { color: NUTRITION_CONSUMED_COLOR, consumed: false, icon: "bowl", id: "afternoon-meal", label: "Afternoon meal" },
-  { color: NUTRITION_CONSUMED_COLOR, consumed: false, icon: "smoothie", id: "evening-smoothie", label: "Evening smoothie" },
-  { color: NUTRITION_CONSUMED_COLOR, consumed: false, icon: "bowl", id: "dinner", label: "Dinner" },
-];
 const WEEKLY_GOAL_DAY_ORDER: WeeklyGoalDay["day"][] = ["S", "M", "T", "W", "T2", "F", "S2"];
 const WEEKLY_GOAL_DAY_LABELS: Record<WeeklyGoalDay["day"], string> = {
   F: "F",
@@ -133,15 +102,31 @@ const WEEKLY_GOAL_DAY_LABELS: Record<WeeklyGoalDay["day"], string> = {
   T2: "T",
   W: "W",
 };
-const DEFAULT_WEEKLY_GOAL_DAYS: WeeklyGoalDay[] = [
-  { completed: false, day: "S", planned: false },
-  { completed: true, day: "M", planned: true },
-  { completed: true, day: "T", planned: true },
-  { completed: true, day: "W", planned: true },
-  { completed: false, day: "T2", planned: true },
-  { completed: false, day: "F", planned: true },
-  { completed: false, day: "S2", planned: false },
-];
+const POSITION_TO_SLOT_MAP: Record<RealmTilePosition, HealthWidgetSlot["slotId"]> = {
+  attention: "bottomLeft",
+  family: "bottomRight",
+  today: "topLeft",
+  upcoming: "topRight",
+};
+const SLOT_TO_POSITION_MAP: Record<HealthWidgetSlot["slotId"], RealmTilePosition> = {
+  bottomLeft: "attention",
+  bottomRight: "family",
+  topLeft: "today",
+  topRight: "upcoming",
+};
+const LEGACY_REALM_TO_FOCUS_ID: Record<HealthRealmId, string> = {
+  baby: "baby_feeding",
+  cycle: "cycle_status",
+  family: "family_updates",
+  fitness: "fitness_plan",
+  general: "health_alerts",
+  medication: "medication_doses",
+  mentalHealth: "mood_checkin",
+  nutrition: "nutrition_overview",
+  pregnancy: "pregnancy_status",
+  records: "records_status",
+  supplements: "supplements_today",
+};
 const POSITION_TO_SHAPE_MAP: Record<RealmTilePosition, TileShapePosition> = {
   today: "topLeft",
   upcoming: "topRight",
@@ -185,217 +170,12 @@ const TILE_DETAIL_LAYOUTS: Record<TileShapePosition, TileDetailLayout> = {
   },
 } as const;
 
-export const HEALTH_REALM_THEMES: Record<HealthRealmId, HealthRealmDefinition> = {
-  general: {
-    accentColor: "#111827",
-    darkTileBackground: "#3F3F46",
-    defaultPrimaryStat: "Today",
-    defaultProgress: 50,
-    defaultSecondaryStatus: "Health overview",
-    icon: "+",
-    id: "general",
-    label: "Health",
-    lightTileBackground: "#F8FAFC",
-    progressType: "ring",
-    route: "/health",
-    visible: true,
-  },
-  fitness: {
-    accentColor: "#C96A2B",
-    darkTileBackground: "#4A342A",
-    defaultPrimaryStat: "55%",
-    defaultProgress: 55,
-    defaultSecondaryStatus: "Weekly goal",
-    icon: "F",
-    id: "fitness",
-    label: "Fitness",
-    lightTileBackground: "#F7D9C2",
-    progressType: "ring",
-    route: "/fitness",
-    visible: true,
-  },
-  nutrition: {
-    accentColor: "#35A96B",
-    darkTileBackground: "#284539",
-    defaultPrimaryStat: "4/9",
-    defaultProgress: 44,
-    defaultSecondaryStatus: "5 meals + 4 smoothies",
-    icon: "N",
-    id: "nutrition",
-    label: "Nutrition",
-    lightTileBackground: "#CDEFD9",
-    progressType: "line",
-    route: "/food",
-    visible: true,
-  },
-  medication: {
-    accentColor: "#56C596",
-    darkTileBackground: "#294C40",
-    defaultPrimaryStat: "3/4",
-    defaultProgress: 75,
-    defaultSecondaryStatus: "Next dose 19:00",
-    icon: "M",
-    id: "medication",
-    label: "Medication",
-    lightTileBackground: "#C9F4D2",
-    progressType: "ring",
-    route: "/medication",
-    visible: true,
-  },
-  cycle: {
-    accentColor: "#C2185B",
-    darkTileBackground: "#4D2637",
-    defaultPrimaryStat: "Day 18",
-    defaultProgress: 62,
-    defaultSecondaryStatus: "Fertile window",
-    icon: "C",
-    id: "cycle",
-    label: "Cycle",
-    lightTileBackground: "#F4C8DA",
-    progressType: "ring",
-    route: "/cycle",
-    visible: true,
-  },
-  baby: {
-    accentColor: "#F4B18A",
-    darkTileBackground: "#514036",
-    defaultPrimaryStat: "2 logs",
-    defaultProgress: 42,
-    defaultSecondaryStatus: "Feeding due soon",
-    icon: "B",
-    id: "baby",
-    label: "Baby",
-    lightTileBackground: "#F8DDCC",
-    progressType: "ring",
-    route: "/baby-child",
-    visible: true,
-  },
-  pregnancy: {
-    accentColor: "#D8B49C",
-    darkTileBackground: "#504138",
-    defaultPrimaryStat: "Week 22",
-    defaultProgress: 55,
-    defaultSecondaryStatus: "Next checkup",
-    icon: "P",
-    id: "pregnancy",
-    label: "Pregnancy",
-    lightTileBackground: "#F1DED2",
-    progressType: "ring",
-    route: "/pregnancy",
-    visible: true,
-  },
-  family: {
-    accentColor: "#E5C94C",
-    darkTileBackground: "#514B2F",
-    defaultPrimaryStat: "5 updates",
-    defaultProgress: 68,
-    defaultSecondaryStatus: "2 shared today",
-    icon: "F",
-    id: "family",
-    label: "Family",
-    lightTileBackground: "#F5EDB8",
-    progressType: "line",
-    route: "/family-circle",
-    visible: true,
-  },
-  records: {
-    accentColor: "#8EA4C8",
-    darkTileBackground: "#354152",
-    defaultPrimaryStat: "Ready",
-    defaultProgress: 0,
-    defaultSecondaryStatus: "Set up records",
-    icon: "R",
-    id: "records",
-    label: "Records",
-    lightTileBackground: "#D8E2F1",
-    progressType: "empty",
-    route: "/records",
-    visible: true,
-  },
-  supplements: {
-    accentColor: "#A78BFA",
-    darkTileBackground: "#443A61",
-    defaultPrimaryStat: "2/3 done",
-    defaultProgress: 66,
-    defaultSecondaryStatus: "Today",
-    icon: "S",
-    id: "supplements",
-    label: "Supplements",
-    lightTileBackground: "#E3D8FF",
-    progressType: "ring",
-    route: "/supplements",
-    visible: true,
-  },
-  mentalHealth: {
-    accentColor: "#6D7DF2",
-    darkTileBackground: "#343A64",
-    defaultPrimaryStat: "😌",
-    defaultProgress: 48,
-    defaultSecondaryStatus: "Check-in due",
-    icon: "M",
-    id: "mentalHealth",
-    label: "Mental Health",
-    lightTileBackground: "#DDE2FF",
-    progressType: "line",
-    route: "/mental-health",
-    visible: true,
-  },
+type ResolvedHealthFocusTile = HealthFocusDisplayData & {
+  definition: HealthFocusDefinition;
+  focusId: string;
+  slotId: HealthWidgetSlot["slotId"];
+  visualData?: HealthVisualData;
 };
-
-function defaultDisplayTitleForRealm(id: HealthRealmId): string {
-  switch (id) {
-    case "medication":
-      return "Antibiotic course";
-    case "fitness":
-      return "29-day plan";
-    case "nutrition":
-      return "Daily consumption";
-    case "mentalHealth":
-      return "Mood check-in";
-    case "family":
-      return "Family updates";
-    case "cycle":
-      return "Cycle tracking";
-    case "baby":
-      return "Baby care";
-    case "pregnancy":
-      return "Pregnancy plan";
-    case "records":
-      return "Health records";
-    case "supplements":
-      return "Supplement plan";
-    case "general":
-    default:
-      return "Health overview";
-  }
-}
-
-function defaultVisualTypeForRealm(id: HealthRealmId): TopicVisualType {
-  switch (id) {
-    case "medication":
-      return "pillCount";
-    case "fitness":
-      return "fitnessBars";
-    case "nutrition":
-      return "nutritionGoalRing";
-    case "mentalHealth":
-      return "moodWave";
-    case "family":
-      return "familyBubbles";
-    case "records":
-      return "sparkline";
-    case "baby":
-    case "pregnancy":
-      return "scheduleDots";
-    case "cycle":
-      return "scheduleDots";
-    case "supplements":
-      return "alertStack";
-    case "general":
-    default:
-      return "progressRing";
-  }
-}
 
 function clampPercent(percent: number): number {
   return Math.max(0, Math.min(100, percent));
@@ -425,44 +205,6 @@ function guideRectToTileStyle(shapePosition: TileShapePosition, rect: GuideRect)
   };
 }
 
-function resolveTile(tile: HealthRealmTile): HealthRealmTile & {
-  contextLine: string;
-  definition: HealthRealmDefinition;
-  displayTitle: string;
-  moduleLabel: string;
-  primaryValue: string;
-  progress: number;
-  progressType: RealmProgressType;
-  visualType: TopicVisualType;
-} {
-  const definition = HEALTH_REALM_THEMES[tile.id];
-  const nutritionItems = nutritionItemsOrDefault(tile.nutritionConsumptionItems);
-  const defaultPrimaryValue = tile.id === "nutrition" ? nutritionPrimaryValue(nutritionItems) : definition.defaultPrimaryStat;
-  const defaultContextLine = tile.id === "nutrition" ? nutritionContextLine(nutritionItems) : definition.defaultSecondaryStatus;
-
-  return {
-    ...tile,
-    contextLine: tile.contextLine ?? tile.secondaryStatus ?? defaultContextLine,
-    definition,
-    displayTitle: tile.displayTitle ?? defaultDisplayTitleForRealm(tile.id),
-    moduleLabel: tile.moduleLabel ?? definition.label,
-    primaryValue: tile.primaryValue ?? tile.primaryStat ?? defaultPrimaryValue,
-    primaryStat: tile.primaryStat ?? defaultPrimaryValue,
-    secondaryStatus: tile.secondaryStatus ?? defaultContextLine,
-    progress: clampPercent(tile.progress ?? definition.defaultProgress),
-    progressType: tile.progressType ?? definition.progressType,
-    visualType: tile.visualType ?? defaultVisualTypeForRealm(tile.id),
-  };
-}
-
-function getTopicVisualType(tile: ReturnType<typeof resolveTile>): TopicVisualType {
-  return tile.visualType;
-}
-
-function defaultTiles(): HealthRealmTile[] {
-  return DEFAULT_TILE_IDS.map((id) => ({ id }));
-}
-
 function nutritionItemsOrDefault(items?: NutritionConsumptionItem[]): NormalizedNutritionConsumptionItem[] {
   const sourceItems = items && items.length > 0 ? items : DEFAULT_NUTRITION_CONSUMPTION_ITEMS;
 
@@ -472,34 +214,38 @@ function nutritionItemsOrDefault(items?: NutritionConsumptionItem[]): Normalized
   }));
 }
 
-function nutritionPrimaryValue(items?: NutritionConsumptionItem[]): string {
-  const normalizedItems = nutritionItemsOrDefault(items);
-  const consumedCount = normalizedItems.filter((item) => item.consumed).length;
+function resolveFocusTile(slot: HealthWidgetSlot, context: HealthFocusDataContext): ResolvedHealthFocusTile {
+  const definition = getHealthFocusDefinition(slot.focusId);
+  const displayData = getHealthFocusDisplayData(definition, context);
 
-  return `${consumedCount}/${normalizedItems.length}`;
+  return {
+    ...displayData,
+    definition,
+    focusId: definition.id,
+    slotId: slot.slotId,
+    visualData: displayData.visualData,
+  };
 }
 
-function nutritionContextLine(items?: NutritionConsumptionItem[]): string {
-  const normalizedItems = nutritionItemsOrDefault(items);
-  const meals = normalizedItems.filter((item) => item.icon === "bowl").length;
-  const smoothies = normalizedItems.filter((item) => item.icon === "smoothie").length;
-  const parts = [];
+function focusIdFromLegacyTile(tile: HealthRealmTile): string {
+  return tile.focusId ?? LEGACY_REALM_TO_FOCUS_ID[tile.id] ?? "nutrition_overview";
+}
 
-  if (meals > 0) {
-    parts.push(`${meals} meal${meals === 1 ? "" : "s"}`);
-  }
+function slotsFromLegacyTiles(tiles: HealthRealmTile[]): HealthWidgetSlot[] {
+  const positions: HealthWidgetSlot["slotId"][] = ["topLeft", "topRight", "bottomLeft", "bottomRight"];
 
-  if (smoothies > 0) {
-    parts.push(`${smoothies} smoothie${smoothies === 1 ? "" : "s"}`);
-  }
-
-  return parts.length > 0 ? parts.join(" + ") : "Daily consumption";
+  return positions.map((slotId, index) => ({
+    focusId: tiles[index] ? focusIdFromLegacyTile(tiles[index]) : DEFAULT_HEALTH_WIDGET_SLOTS[index].focusId,
+    slotId,
+  }));
 }
 
 export function HealthRealmBoard({
   title = "Health Control",
   subtitle = "Your modular health board",
-  tiles = defaultTiles(),
+  tiles,
+  selectedFocusSlots,
+  focusContext = {},
   framed = true,
   style,
   onRealmPress,
@@ -510,7 +256,9 @@ export function HealthRealmBoard({
   const { width } = useWindowDimensions();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
-  const [tileMenuRealmId, setTileMenuRealmId] = useState<HealthRealmId | null>(null);
+  const initialSlots = useMemo(() => selectedFocusSlots ?? (tiles ? slotsFromLegacyTiles(tiles) : DEFAULT_HEALTH_WIDGET_SLOTS), [selectedFocusSlots, tiles]);
+  const [widgetSlots, setWidgetSlots] = useState<HealthWidgetSlot[]>(initialSlots);
+  const [activeSlotId, setActiveSlotId] = useState<HealthWidgetSlot["slotId"] | null>(null);
   const [boardMenuOpen, setBoardMenuOpen] = useState(false);
 
   const cardWidth = Math.min(width - 32, framed ? 420 : 480);
@@ -518,31 +266,40 @@ export function HealthRealmBoard({
   const boardHeight = boardWidth / TILE_BOARD_ASPECT_RATIO;
   const headingColor = framed || isDark ? "#ffffff" : "#111827";
   const mutedColor = framed || isDark ? "#b8b8c0" : "#64748b";
-  const resolvedTiles = useMemo(() => tiles.slice(0, 4).map(resolveTile), [tiles]);
+  const activeTile = useMemo(() => {
+    const slot = widgetSlots.find((item) => item.slotId === activeSlotId);
 
-  const positionedTiles = ["today", "upcoming", "attention", "family"].map((position, index) => ({
-    position: position as RealmTilePosition,
-    tile: resolvedTiles[index] ?? resolveTile({ id: DEFAULT_TILE_IDS[index] }),
-  }));
+    return slot ? resolveFocusTile(slot, focusContext) : null;
+  }, [activeSlotId, focusContext, widgetSlots]);
+  const positionedTiles = useMemo(
+    () =>
+      widgetSlots.slice(0, 4).map((slot) => ({
+        position: SLOT_TO_POSITION_MAP[slot.slotId],
+        tile: resolveFocusTile(slot, focusContext),
+      })),
+    [focusContext, widgetSlots]
+  );
 
   useFocusEffect(
     useCallback(() => {
       return () => {
         setBoardMenuOpen(false);
-        setTileMenuRealmId(null);
+        setActiveSlotId(null);
       };
     }, [])
   );
 
   function openRealm(realm: HealthRealmDefinition): void {
     setBoardMenuOpen(false);
-    setTileMenuRealmId(null);
+    setActiveSlotId(null);
     onRealmPress?.(realm);
     router.push(realm.route);
   }
 
-  function handleTileAction(action: HealthTileMenuAction, realm: HealthRealmDefinition): void {
-    setTileMenuRealmId(null);
+  function handleTileAction(action: HealthTileMenuAction, tile: ResolvedHealthFocusTile): void {
+    setActiveSlotId(null);
+    const realm = tile.definition;
+
     onTileMenuAction?.(action, realm);
 
     if (action === "open") {
@@ -554,13 +311,18 @@ export function HealthRealmBoard({
     setBoardMenuOpen(open);
 
     if (open) {
-      setTileMenuRealmId(null);
+      setActiveSlotId(null);
     }
   }
 
   function handleBoardAction(action: HealthBoardMenuAction): void {
     setBoardMenuOpen(false);
     onBoardMenuAction?.(action);
+  }
+
+  function replaceSlotFocus(slotId: HealthWidgetSlot["slotId"], focusId: string): void {
+    // TODO: Persist selected focus ids, widget order, hidden widgets, and defaults to Supabase/user preferences.
+    setWidgetSlots((currentSlots) => currentSlots.map((slot) => (slot.slotId === slotId ? { ...slot, focusId } : slot)));
   }
 
   return (
@@ -578,23 +340,27 @@ export function HealthRealmBoard({
           <HealthRealmTileButton
             isDark={isDark}
             key={position}
-            onLongPress={() => setTileMenuRealmId(tile.id)}
+            onLongPress={() => {
+              setBoardMenuOpen(false);
+              setActiveSlotId(POSITION_TO_SLOT_MAP[position]);
+            }}
             onPress={() => openRealm(tile.definition)}
             position={position}
             tile={tile}
           />
         ))}
         <CenterConnector />
+        {activeTile ? (
+          <HealthWidgetFocusPopover
+            isDark={isDark}
+            onAction={handleTileAction}
+            onClose={() => setActiveSlotId(null)}
+            onFocusSelect={(focusId) => replaceSlotFocus(activeTile.slotId, focusId)}
+            tile={activeTile}
+          />
+        ) : null}
       </View>
 
-      {tileMenuRealmId ? (
-        <HealthRealmMenu
-          isOpen
-          onAction={handleTileAction}
-          onOpenChange={(open) => !open && setTileMenuRealmId(null)}
-          realm={HEALTH_REALM_THEMES[tileMenuRealmId]}
-        />
-      ) : null}
     </View>
   );
 }
@@ -606,7 +372,7 @@ function HealthRealmTileButton({
   onPress,
   onLongPress,
 }: {
-  tile: ReturnType<typeof resolveTile>;
+  tile: ResolvedHealthFocusTile;
   position: RealmTilePosition;
   isDark: boolean;
   onPress: () => void;
@@ -618,7 +384,7 @@ function HealthRealmTileButton({
   const shapePosition = POSITION_TO_SHAPE_MAP[position];
   const layout = TILE_DETAIL_LAYOUTS[shapePosition];
   const isLeftColumn = layout.column === "left";
-  const visualType = getTopicVisualType(tile);
+  const visualType = tile.visualType;
   const tileFrameStyle = guideRectToBoardStyle(layout.tileBounds);
   const moduleLabelStyle = guideRectToTileStyle(shapePosition, layout.moduleLabel);
   const dataAreaStyle = guideRectToTileStyle(shapePosition, layout.dataArea);
@@ -626,77 +392,77 @@ function HealthRealmTileButton({
 
   return (
     <Pressable
-      accessibilityLabel={`${tile.moduleLabel}: ${tile.displayTitle}. ${tile.primaryValue}. ${tile.contextLine}`}
-      accessibilityRole="button"
-      delayLongPress={450}
-      onLongPress={onLongPress}
-      onPress={onPress}
-      style={({ pressed }) => [styles.tileContent, tileFrameStyle, pressed && styles.tilePressed]}
-    >
-      <TileShapeSvg definition={definition} isDark={isDark} position={position} shapePosition={shapePosition} />
-      <View pointerEvents="none" style={styles.tileHitSurface} />
-      <View style={[styles.moduleLabelZone, moduleLabelStyle]}>
-        <Text adjustsFontSizeToFit minimumFontScale={0.78} numberOfLines={1} style={[styles.moduleLabelText, { color: textColor }]}>
-          {tile.moduleLabel}
-        </Text>
-      </View>
-      <View style={[styles.dataAreaZone, dataAreaStyle]}>
-        {isLeftColumn ? (
-          <>
-            <View style={styles.dataCopyLeft}>
-              <View style={styles.dataCopyStack}>
-                <Text adjustsFontSizeToFit minimumFontScale={0.78} numberOfLines={1} style={[styles.displayTitleText, { color: mutedTileText }]}>
-                  {tile.displayTitle}
-                </Text>
-                <Text adjustsFontSizeToFit minimumFontScale={0.74} numberOfLines={2} style={[styles.contextLineText, { color: mutedTileText }]}>
-                  {tile.contextLine}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.primaryRight}>
-              <Text adjustsFontSizeToFit minimumFontScale={0.6} numberOfLines={2} style={[styles.primaryValueText, styles.textRight, { color: textColor }]}>
-                {tile.primaryValue}
-              </Text>
-            </View>
-          </>
-        ) : (
-          <>
-            <View style={styles.primaryLeft}>
-              <Text adjustsFontSizeToFit minimumFontScale={0.6} numberOfLines={2} style={[styles.primaryValueText, { color: textColor }]}>
-                {tile.primaryValue}
-              </Text>
-            </View>
-            <View style={styles.dataCopyRight}>
-              <View style={styles.dataCopyStack}>
-                <Text adjustsFontSizeToFit minimumFontScale={0.78} numberOfLines={1} style={[styles.displayTitleText, styles.textRight, { color: mutedTileText }]}>
-                  {tile.displayTitle}
-                </Text>
-                <Text adjustsFontSizeToFit minimumFontScale={0.74} numberOfLines={2} style={[styles.contextLineText, styles.textRight, { color: mutedTileText }]}>
-                  {tile.contextLine}
-                </Text>
-              </View>
-            </View>
-          </>
-        )}
-      </View>
-      <View
-        pointerEvents="none"
-        style={[styles.visualThresholdZone, visualThresholdStyle]}
-      >
-        <View style={[styles.visualClip, isLeftColumn ? styles.visualClipLeft : styles.visualClipRight]}>
-          <View style={styles.visualCanvas}>
-            <TopicVisual
-              accent={definition.accentColor}
-              isDark={isDark}
-              lineData={tile.lineData}
-              nutritionConsumptionItems={tile.nutritionConsumptionItems}
-              progress={tile.progress}
-              type={visualType}
-              weeklyGoalDays={tile.weeklyGoalDays}
-            />
+          accessibilityLabel={`${tile.moduleLabel}: ${tile.displayTitle}. ${tile.primaryValue}. ${tile.contextLine}`}
+          accessibilityRole="button"
+          delayLongPress={450}
+          onLongPress={onLongPress}
+          onPress={onPress}
+          style={({ pressed }) => [styles.tileContent, tileFrameStyle, pressed && styles.tilePressed]}
+        >
+          <TileShapeSvg definition={definition} isDark={isDark} position={position} shapePosition={shapePosition} />
+          <View pointerEvents="none" style={styles.tileHitSurface} />
+          <View style={[styles.moduleLabelZone, moduleLabelStyle]}>
+            <Text adjustsFontSizeToFit minimumFontScale={0.78} numberOfLines={1} style={[styles.moduleLabelText, { color: textColor }]}>
+              {tile.moduleLabel}
+            </Text>
           </View>
-        </View>
-      </View>
+          <View style={[styles.dataAreaZone, dataAreaStyle]}>
+            {isLeftColumn ? (
+              <>
+                <View style={styles.dataCopyLeft}>
+                  <View style={styles.dataCopyStack}>
+                    <Text adjustsFontSizeToFit minimumFontScale={0.78} numberOfLines={1} style={[styles.displayTitleText, { color: mutedTileText }]}>
+                      {tile.displayTitle}
+                    </Text>
+                    <Text adjustsFontSizeToFit minimumFontScale={0.74} numberOfLines={2} style={[styles.contextLineText, { color: mutedTileText }]}>
+                      {tile.contextLine}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.primaryRight}>
+                  <Text adjustsFontSizeToFit minimumFontScale={0.6} numberOfLines={2} style={[styles.primaryValueText, styles.textRight, { color: textColor }]}>
+                    {tile.primaryValue}
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.primaryLeft}>
+                  <Text adjustsFontSizeToFit minimumFontScale={0.6} numberOfLines={2} style={[styles.primaryValueText, { color: textColor }]}>
+                    {tile.primaryValue}
+                  </Text>
+                </View>
+                <View style={styles.dataCopyRight}>
+                  <View style={styles.dataCopyStack}>
+                    <Text adjustsFontSizeToFit minimumFontScale={0.78} numberOfLines={1} style={[styles.displayTitleText, styles.textRight, { color: mutedTileText }]}>
+                      {tile.displayTitle}
+                    </Text>
+                    <Text adjustsFontSizeToFit minimumFontScale={0.74} numberOfLines={2} style={[styles.contextLineText, styles.textRight, { color: mutedTileText }]}>
+                      {tile.contextLine}
+                    </Text>
+                  </View>
+                </View>
+              </>
+            )}
+          </View>
+          <View
+            pointerEvents="none"
+            style={[styles.visualThresholdZone, visualThresholdStyle]}
+          >
+            <View style={[styles.visualClip, isLeftColumn ? styles.visualClipLeft : styles.visualClipRight]}>
+              <View style={styles.visualCanvas}>
+                <TopicVisual
+                  accent={definition.accentColor}
+                  isDark={isDark}
+                  lineData={tile.visualData?.lineData}
+                  nutritionConsumptionItems={tile.visualData?.nutritionConsumptionItems}
+                  progress={tile.visualData?.progress ?? 0}
+                  type={visualType}
+                  weeklyGoalDays={tile.visualData?.weeklyGoalDays}
+                />
+              </View>
+            </View>
+          </View>
     </Pressable>
   );
 }
@@ -721,27 +487,36 @@ function TopicVisual({
   switch (type) {
     case "pillCount":
       return <PillCountVisual accent={accent} isDark={isDark} progress={progress} />;
-    case "scheduleDots":
+    case "timelineDots":
+    case "calendarDots":
       return <ScheduleDotsVisual accent={accent} isDark={isDark} />;
-    case "alertStack":
+    case "checklistStack":
       return <AlertStackVisual accent={accent} isDark={isDark} progress={progress} />;
     case "familyBubbles":
       return <FamilyBubblesVisual accent={accent} isDark={isDark} progress={progress} />;
     case "fitnessBars":
       return <FitnessBarsVisual accent={accent} isDark={isDark} weeklyGoalDays={weeklyGoalDays} />;
-    case "mealDots":
-      return <MealDotsVisual accent={accent} isDark={isDark} progress={progress} />;
+    case "mealStack":
+      return <MealStackVisual accent={accent} isDark={isDark} progress={progress} />;
+    case "waterDrops":
+      return <WaterDropsVisual accent={accent} isDark={isDark} progress={progress} />;
+    case "miniBars":
+      return <MiniBarsVisual accent={accent} isDark={isDark} progress={progress} />;
     case "moodWave":
       return <MoodWaveVisual accent={accent} isDark={isDark} lineData={lineData} progress={progress} />;
-    case "nutritionGoalRing":
+    case "nutritionConsumption":
       return <NutritionConsumptionVisual isDark={isDark} items={nutritionItemsOrDefault(nutritionConsumptionItems)} />;
-    case "sparkline":
+    case "miniSparkline":
       return <SparklineVisual accent={accent} isDark={isDark} lineData={lineData} progress={progress} />;
-    case "sleepBars":
-      return <SleepBarsVisual accent={accent} isDark={isDark} progress={progress} />;
-    case "progressRing":
+    case "statusBadge":
+      return <StatusBadgeVisual accent={accent} isDark={isDark} progress={progress} />;
+    case "setupBadge":
+      return <SetupBadgeVisual accent={accent} isDark={isDark} />;
+    case "iconMark":
+      return <IconMarkVisual accent={accent} isDark={isDark} />;
+    case "none":
     default:
-      return <RealmProgressVisual accent={accent} isDark={isDark} lineData={lineData} progress={progress} type="ring" />;
+      return <View />;
   }
 }
 
@@ -836,7 +611,7 @@ function FitnessBarsVisual({ accent, isDark, weeklyGoalDays }: { accent: string;
   );
 }
 
-function MealDotsVisual({ accent, isDark, progress }: { accent: string; isDark: boolean; progress: number }): JSX.Element {
+function MealStackVisual({ accent, isDark, progress }: { accent: string; isDark: boolean; progress: number }): JSX.Element {
   const muted = isDark ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.16)";
   const complete = Math.max(0, Math.min(5, Math.round((clampPercent(progress) / 100) * 5)));
 
@@ -846,6 +621,38 @@ function MealDotsVisual({ accent, isDark, progress }: { accent: string; isDark: 
         <Circle cx={32 + index * 20} cy="32" fill={index < complete ? accent : muted} key={index} r={index === 2 ? 8 : 6} />
       ))}
       <Path d="M48 46c14 7 34 7 48 0" fill="none" stroke={muted} strokeLinecap="round" strokeWidth="4" />
+    </Svg>
+  );
+}
+
+function WaterDropsVisual({ accent, isDark, progress }: { accent: string; isDark: boolean; progress: number }): JSX.Element {
+  const muted = isDark ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.16)";
+  const filledCount = Math.max(0, Math.min(8, Math.round((clampPercent(progress) / 100) * 8)));
+
+  return (
+    <Svg height="100%" viewBox="0 0 144 64" width="100%">
+      {[0, 1, 2, 3, 4, 5, 6, 7].map((index) => {
+        const x = 18 + index * 15;
+        const fill = index < filledCount ? accent : muted;
+
+        return <Path d={`M${x} 19c5 7 8 12 8 17a8 8 0 0 1-16 0c0-5 3-10 8-17z`} fill={fill} key={index} />;
+      })}
+    </Svg>
+  );
+}
+
+function MiniBarsVisual({ accent, isDark, progress }: { accent: string; isDark: boolean; progress: number }): JSX.Element {
+  const muted = isDark ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.16)";
+  const normalized = clampPercent(progress) / 100;
+
+  return (
+    <Svg height="100%" viewBox="0 0 144 64" width="100%">
+      {[0, 1, 2, 3, 4].map((index) => {
+        const height = 14 + normalized * 22 + index * 3;
+
+        return <Rect fill={index < 3 ? accent : muted} height={height} key={index} rx="6" width="14" x={32 + index * 17} y={52 - height} />;
+      })}
+      <Line stroke={muted} strokeLinecap="round" strokeWidth="3" x1="28" x2="116" y1="54" y2="54" />
     </Svg>
   );
 }
@@ -940,52 +747,44 @@ function FamilyBubblesVisual({ accent, isDark, progress }: { accent: string; isD
   );
 }
 
-function RealmProgressVisual({
-  accent,
-  isDark,
-  lineData,
-  progress,
-  type,
-}: {
-  accent: string;
-  isDark: boolean;
-  lineData?: number[];
-  progress: number;
-  type: RealmProgressType;
-}): JSX.Element {
-  const track = isDark ? "rgba(255,255,255,0.22)" : "rgba(15,23,42,0.14)";
-
-  if (type === "line") {
-    return <SparklineVisual accent={accent} isDark={isDark} lineData={lineData} progress={progress} />;
-  }
-
-  if (type === "empty") {
-    return (
-      <Svg height="100%" viewBox="0 0 144 64" width="100%">
-        <Circle cx="72" cy="32" fill="none" r="19" stroke={track} strokeWidth="6" />
-        <Path d="M59 32h26" stroke={accent} strokeLinecap="round" strokeWidth="6" />
-      </Svg>
-    );
-  }
-
-  const radius = 20;
-  const circumference = 2 * Math.PI * radius;
-  const dash = (clampPercent(progress) / 100) * circumference;
+function StatusBadgeVisual({ accent, isDark, progress }: { accent: string; isDark: boolean; progress: number }): JSX.Element {
+  const muted = isDark ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.16)";
+  const fill = isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.48)";
+  const dotX = 44 + (clampPercent(progress) / 100) * 56;
 
   return (
     <Svg height="100%" viewBox="0 0 144 64" width="100%">
-      <Circle cx="72" cy="32" fill="none" r={radius} stroke={track} strokeWidth="6" />
-      <Circle
-        cx="72"
-        cy="32"
-        fill="none"
-        r={radius}
-        stroke={accent}
-        strokeDasharray={`${dash} ${circumference - dash}`}
-        strokeLinecap="round"
-        strokeWidth="6"
-        transform="rotate(-90 72 32)"
-      />
+      <Rect fill={fill} height="34" rx="17" stroke={muted} strokeWidth="3" width="92" x="26" y="15" />
+      <Line stroke={muted} strokeLinecap="round" strokeWidth="5" x1="44" x2="100" y1="32" y2="32" />
+      <Circle cx={dotX} cy="32" fill={accent} r="8" />
+      <Circle cx="106" cy="22" fill={accent} opacity="0.82" r="4" />
+    </Svg>
+  );
+}
+
+function SetupBadgeVisual({ accent, isDark }: { accent: string; isDark: boolean }): JSX.Element {
+  const muted = isDark ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.16)";
+  const fill = isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.48)";
+
+  return (
+    <Svg height="100%" viewBox="0 0 144 64" width="100%">
+      <Rect fill={fill} height="42" rx="13" stroke={muted} strokeWidth="3" width="78" x="33" y="11" />
+      <Path d="M72 23v18M63 32h18" stroke={accent} strokeLinecap="round" strokeWidth="6" />
+      <Circle cx="104" cy="17" fill={accent} r="5" />
+    </Svg>
+  );
+}
+
+function IconMarkVisual({ accent, isDark }: { accent: string; isDark: boolean }): JSX.Element {
+  const muted = isDark ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.16)";
+  const fill = isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.48)";
+
+  return (
+    <Svg height="100%" viewBox="0 0 144 64" width="100%">
+      <Rect fill={fill} height="42" rx="14" stroke={muted} strokeWidth="3" width="84" x="30" y="11" />
+      <Path d="M52 24v-6h14M92 18h-14M52 40v6h14M92 46h-14" fill="none" stroke={accent} strokeLinecap="round" strokeWidth="4" />
+      <Path d="M59 32h26" stroke={accent} strokeLinecap="round" strokeWidth="5" />
+      <Circle cx="94" cy="32" fill={accent} r="5" />
     </Svg>
   );
 }
@@ -999,22 +798,6 @@ function SparklineVisual({ accent, isDark, lineData, progress }: { accent: strin
     <Svg height="100%" viewBox="0 0 144 64" width="100%">
       <Polyline fill="none" points="20,52 124,52" stroke={muted} strokeLinecap="round" strokeWidth="4" />
       <Polyline fill="none" points={points} stroke={accent} strokeLinecap="round" strokeLinejoin="round" strokeWidth="5" />
-    </Svg>
-  );
-}
-
-function SleepBarsVisual({ accent, isDark, progress }: { accent: string; isDark: boolean; progress: number }): JSX.Element {
-  const muted = isDark ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.16)";
-  const normalized = clampPercent(progress) / 100;
-
-  return (
-    <Svg height="100%" viewBox="0 0 144 64" width="100%">
-      {[0, 1, 2, 3, 4, 5].map((index) => {
-        const height = 12 + normalized * 17 + (index % 3) * 4;
-
-        return <Rect fill={index === 3 ? accent : muted} height={height} key={index} rx="5" width="10" x={31 + index * 14} y={52 - height} />;
-      })}
-      <Line stroke={muted} strokeLinecap="round" strokeWidth="3" x1="28" x2="116" y1="54" y2="54" />
     </Svg>
   );
 }
@@ -1057,34 +840,126 @@ function CenterConnector(): JSX.Element {
   );
 }
 
-function HealthRealmMenu({
-  isOpen,
+function HealthWidgetFocusPopover({
+  isDark,
   onAction,
-  onOpenChange,
-  realm,
+  onClose,
+  onFocusSelect,
+  tile,
 }: {
-  isOpen: boolean;
-  onAction: (action: HealthTileMenuAction, realm: HealthRealmDefinition) => void;
-  onOpenChange: (open: boolean) => void;
-  realm: HealthRealmDefinition;
+  isDark: boolean;
+  onAction: (action: HealthTileMenuAction, tile: ResolvedHealthFocusTile) => void;
+  onClose: () => void;
+  onFocusSelect: (focusId: string) => void;
+  tile: ResolvedHealthFocusTile;
 }): JSX.Element {
+  const [mode, setMode] = useState<"actions" | "replace">("actions");
+  const background = isDark ? "#222226" : "#FFFFFF";
+  const textColor = isDark ? "#F8FAFC" : "#111827";
+  const mutedColor = isDark ? "rgba(248,250,252,0.66)" : "rgba(17,24,39,0.62)";
+  const borderColor = isDark ? "rgba(255,255,255,0.1)" : "rgba(15,23,42,0.1)";
+  const groups = getHealthFocusGroups();
+  const positionStyle = popoverStyleForSlot(tile.slotId);
+  const headerSubtitle = mode === "replace" ? tile.displayTitle : `${tile.primaryValue} - ${tile.contextLine}`;
+
   return (
-    <Menu isOpen={isOpen} onOpenChange={onOpenChange} presentation="popover">
-      <Menu.Portal>
-        <Menu.Overlay style={styles.menuOverlay} />
-        <Menu.Content presentation="popover">
-          <Menu.Label>{realm.label}</Menu.Label>
-          <Menu.Item onPress={() => onAction("open", realm)}><Menu.ItemTitle>Open realm</Menu.ItemTitle></Menu.Item>
-          <Menu.Item onPress={() => onAction("replace", realm)}><Menu.ItemTitle>Replace tile</Menu.ItemTitle></Menu.Item>
-          <Menu.Item onPress={() => onAction("move", realm)}><Menu.ItemTitle>Move position</Menu.ItemTitle></Menu.Item>
-          <Menu.Item onPress={() => onAction("info", realm)}><Menu.ItemTitle>View realm info</Menu.ItemTitle></Menu.Item>
-          <Menu.Item onPress={() => onAction("hide", realm)}><Menu.ItemTitle>Hide from Health Control</Menu.ItemTitle></Menu.Item>
-        </Menu.Content>
-      </Menu.Portal>
-    </Menu>
+    <>
+      <Pressable onPress={onClose} style={styles.focusPopoverScrim} />
+      <View style={[styles.focusPopover, positionStyle, { backgroundColor: background, borderColor }]}>
+        <View style={styles.focusSheetHeader}>
+          <View style={[styles.focusAccentMark, { backgroundColor: tile.definition.accentColor }]} />
+          <View style={styles.focusHeaderCopy}>
+            <Text numberOfLines={1} style={[styles.focusSheetTitle, { color: textColor }]}>
+              {mode === "replace" ? "Replace focus" : tile.definition.label}
+            </Text>
+            <Text numberOfLines={1} style={[styles.focusSheetSubtitle, { color: mutedColor }]}>
+              {headerSubtitle}
+            </Text>
+          </View>
+        </View>
+
+        {mode === "actions" ? (
+          <View style={styles.focusPopoverList}>
+            <FocusPopoverRow description="Go to the selected tracker" label="Open this focus" onPress={() => onAction("open", tile)} textColor={textColor} mutedColor={mutedColor} />
+            <FocusPopoverRow description="Choose another focus data source" label="Replace focus" onPress={() => setMode("replace")} textColor={textColor} mutedColor={mutedColor} />
+            <FocusPopoverRow description="Reorder support is coming later" label="Move widget" onPress={() => onAction("move", tile)} textColor={textColor} mutedColor={mutedColor} />
+            <FocusPopoverRow description="Review this widget focus" label="View info" onPress={() => onAction("info", tile)} textColor={textColor} mutedColor={mutedColor} />
+            <FocusPopoverRow description="Hide support is coming later" label="Hide widget" onPress={() => onAction("hide", tile)} textColor={textColor} mutedColor={mutedColor} />
+          </View>
+        ) : (
+          <View style={styles.focusPopoverPicker}>
+            <Pressable onPress={() => setMode("actions")} style={styles.focusPopoverBackButton}>
+              <Text style={[styles.focusPopoverBackText, { color: tile.definition.accentColor }]}>Back to actions</Text>
+            </Pressable>
+            <ScrollView contentContainerStyle={styles.focusPopoverScroll} nestedScrollEnabled showsVerticalScrollIndicator>
+              {groups.map((group) => (
+                <View key={group.category} style={styles.focusPopoverGroup}>
+                  <Text style={[styles.heroMenuGroupTitle, { color: mutedColor }]}>{group.label}</Text>
+                  {group.items.map((focus) => {
+                    const isSelected = focus.id === tile.focusId;
+
+                    return (
+                      <Pressable
+                        key={focus.id}
+                        onPress={() => {
+                          onFocusSelect(focus.id);
+                          onClose();
+                        }}
+                        style={[styles.focusPopoverOption, { borderColor: isSelected ? tile.definition.accentColor : borderColor }]}
+                      >
+                        <View style={[styles.heroMenuAccentDot, { backgroundColor: focus.accentColor }]} />
+                        <View style={styles.heroMenuRowCopy}>
+                          <Text numberOfLines={1} style={[styles.heroMenuTitle, { color: textColor }]}>{focus.label}</Text>
+                          <Text numberOfLines={1} style={[styles.heroMenuDescription, { color: mutedColor }]}>{focus.placeholder.displayTitle}</Text>
+                        </View>
+                        {isSelected ? <Text style={[styles.focusPopoverSelected, { color: tile.definition.accentColor }]}>Selected</Text> : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+      </View>
+    </>
   );
 }
 
+function FocusPopoverRow({
+  description,
+  label,
+  mutedColor,
+  onPress,
+  textColor,
+}: {
+  description: string;
+  label: string;
+  mutedColor: string;
+  onPress: () => void;
+  textColor: string;
+}): JSX.Element {
+  return (
+    <Pressable onPress={onPress} style={styles.focusPopoverRow}>
+      <Text style={[styles.heroMenuTitle, { color: textColor }]}>{label}</Text>
+      <Text style={[styles.heroMenuDescription, { color: mutedColor }]}>{description}</Text>
+    </Pressable>
+  );
+}
+
+function popoverStyleForSlot(slotId: HealthWidgetSlot["slotId"]): ViewStyle {
+  switch (slotId) {
+    case "topRight":
+      return { right: "4%", top: "45%" };
+    case "bottomLeft":
+      return { left: "4%", top: "86%" };
+    case "bottomRight":
+      return { right: "4%", top: "86%" };
+    case "topLeft":
+    default:
+      return { left: "4%", top: "45%" };
+  }
+}
 function KebabMenuIcon({ color }: { color: string }): JSX.Element {
   return (
     <Svg height="20" viewBox="0 0 20 20" width="20">
@@ -1156,9 +1031,63 @@ const styles = StyleSheet.create({
   subheading: { fontSize: 13, fontWeight: "600", letterSpacing: 0, lineHeight: 16, marginTop: 6 },
   menuButton: { alignItems: "center", backgroundColor: "rgba(15,23,42,0.08)", borderRadius: 999, height: 36, justifyContent: "center", width: 36 },
   menuOverlay: { backgroundColor: "transparent" },
+  sheetOverlay: { backgroundColor: "rgba(0,0,0,0.28)" },
+  focusSheetBackground: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    elevation: 16,
+    shadowColor: "#000000",
+    shadowOffset: { height: -8, width: 0 },
+    shadowOpacity: 0.22,
+    shadowRadius: 24,
+  },
+  focusSheetContent: { maxHeight: 620, paddingBottom: 20, paddingHorizontal: 18, paddingTop: 10 },
+  focusPopover: {
+    borderRadius: 18,
+    borderWidth: 1,
+    elevation: 16,
+    maxHeight: "86%",
+    overflow: "hidden",
+    paddingBottom: 8,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    position: "absolute",
+    shadowColor: "#000000",
+    shadowOffset: { height: 10, width: 0 },
+    shadowOpacity: 0.22,
+    shadowRadius: 24,
+    width: "58%",
+    zIndex: 20,
+  },
+  focusPopoverBackButton: { alignSelf: "flex-start", borderRadius: 999, paddingBottom: 3, paddingTop: 0 },
+  focusPopoverBackText: { fontSize: 10, fontWeight: "900", letterSpacing: 0, lineHeight: 11 },
+  focusPopoverGroup: { gap: 2 },
+  focusPopoverList: { gap: 2 },
+  focusPopoverOption: { alignItems: "center", borderRadius: 9, borderWidth: 1, flexDirection: "row", gap: 6, minHeight: 32, paddingHorizontal: 7, paddingVertical: 4 },
+  focusPopoverPicker: { maxHeight: 318, overflow: "hidden" },
+  focusPopoverRow: { borderRadius: 10, minHeight: 42, paddingHorizontal: 7, paddingVertical: 6 },
+  focusPopoverScrim: { bottom: 0, left: 0, position: "absolute", right: 0, top: 0, zIndex: 19 },
+  focusPopoverScroll: { gap: 5, paddingBottom: 2 },
+  focusPopoverSelected: { fontSize: 9, fontWeight: "900", letterSpacing: 0, lineHeight: 11 },
+  sheetHandle: { alignSelf: "center", backgroundColor: "rgba(148,163,184,0.45)", borderRadius: 999, height: 4, marginBottom: 14, width: 42 },
+  focusSheetHeader: { alignItems: "center", flexDirection: "row", gap: 8, marginBottom: 5 },
+  focusAccentMark: { borderRadius: 999, height: 22, width: 4 },
+  focusHeaderCopy: { flex: 1, minWidth: 0 },
+  focusSheetTitle: { fontSize: 13.5, fontWeight: "900", letterSpacing: 0, lineHeight: 15 },
+  focusSheetSubtitle: { fontSize: 9.8, fontWeight: "700", letterSpacing: 0, lineHeight: 11, marginTop: 1 },
+  heroMenuAccentDot: { borderRadius: 999, height: 8, marginRight: 5, width: 8 },
+  heroMenuDescription: { fontSize: 9.5, fontWeight: "700", letterSpacing: 0, lineHeight: 11, marginTop: 0 },
+  heroMenuFooter: { alignItems: "center", flexDirection: "row", gap: 7, marginTop: 6, paddingHorizontal: 7, paddingVertical: 5 },
+  heroMenuFooterDot: { borderRadius: 999, height: 8, width: 8 },
+  heroMenuFooterText: { fontSize: 10.5, fontWeight: "800", letterSpacing: 0, lineHeight: 13 },
+  heroMenuGroupTitle: { fontSize: 8.8, fontWeight: "900", letterSpacing: 0.5, lineHeight: 10, marginTop: 5, paddingHorizontal: 5, textTransform: "uppercase" },
+  heroMenuRowCopy: { flex: 1, minWidth: 0 },
+  heroMenuTitle: { fontSize: 11.2, fontWeight: "900", letterSpacing: 0, lineHeight: 13 },
   tileBoard: { alignSelf: "center", marginBottom: 8, marginTop: 14, position: "relative" },
   tileShapeSvg: { bottom: 0, left: 0, position: "absolute", right: 0, top: 0 },
   tileContent: { backgroundColor: "transparent", position: "absolute", zIndex: 3 },
+  tilePressable: { backgroundColor: "transparent", flex: 1 },
   tileHitSurface: { backgroundColor: "rgba(255,255,255,0.001)", bottom: 0, left: 0, position: "absolute", right: 0, top: 0 },
   tilePressed: { transform: [{ scale: 0.98 }] },
   moduleLabelZone: { alignItems: "center", justifyContent: "center", overflow: "hidden", position: "absolute" },
