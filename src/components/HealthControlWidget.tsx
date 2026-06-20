@@ -3,28 +3,63 @@ import { Fragment, useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, useColorScheme, useWindowDimensions, View, type StyleProp, type ViewStyle } from "react-native";
 import { useFocusEffect, useRouter, type Href } from "expo-router";
 import { Menu } from "heroui-native";
-import Svg, { Circle, Line, Path, Polyline, Rect } from "react-native-svg";
+import Svg, { Circle, Line, Path, Polyline, Rect, Text as SvgText } from "react-native-svg";
 
-import {
-  DEFAULT_HEALTH_TILE_IDS,
-  HEALTH_REALM_REGISTRY,
-  getHealthRealmConfig,
-  type HealthRealmConfig,
-  type HealthRealmConfigId,
-  type HealthTileVisualType,
-} from "@/features/health/config/healthRealmRegistry";
+export type HealthRealmId =
+  | "general"
+  | "fitness"
+  | "nutrition"
+  | "medication"
+  | "cycle"
+  | "baby"
+  | "pregnancy"
+  | "family"
+  | "records"
+  | "supplements"
+  | "mentalHealth";
 
-export type HealthRealmId = HealthRealmConfigId | string;
-export type RealmProgressType = "line" | "empty";
+export type RealmProgressType = "ring" | "line" | "empty";
 export type RealmTilePosition = "today" | "upcoming" | "attention" | "family";
 type TileShapePosition = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 type TileColumn = "left" | "right";
-export type TopicVisualType = HealthTileVisualType;
+export type TopicVisualType =
+  | "pillCount"
+  | "scheduleDots"
+  | "alertStack"
+  | "familyBubbles"
+  | "fitnessBars"
+  | "mealDots"
+  | "moodWave"
+  | "nutritionGoalRing"
+  | "sparkline"
+  | "sleepBars"
+  | "progressRing";
 
-export type HealthRealmDefinition = Omit<HealthRealmConfig, "route"> & {
+export type WeeklyGoalDay = {
+  day: "M" | "T" | "W" | "T2" | "F" | "S" | "S2";
+  planned: boolean;
+  completed: boolean;
+};
+
+export type NutritionConsumptionItem = {
+  id: string;
+  label: string;
+  icon: "bowl" | "smoothie";
+  consumed: boolean;
+  color?: string;
+};
+
+type NormalizedNutritionConsumptionItem = NutritionConsumptionItem & { color: string };
+
+export type HealthRealmDefinition = {
+  id: HealthRealmId;
+  label: string;
+  icon: string;
   route: Href;
+  accentColor: string;
   lightTileBackground: string;
   darkTileBackground: string;
+  progressType: RealmProgressType;
   defaultPrimaryStat: string;
   defaultSecondaryStatus: string;
   defaultProgress: number;
@@ -44,12 +79,13 @@ export type HealthRealmTile = {
   progress?: number;
   progressType?: RealmProgressType;
   lineData?: number[];
+  weeklyGoalDays?: WeeklyGoalDay[];
+  nutritionConsumptionItems?: NutritionConsumptionItem[];
 };
 
 export type HealthRealmBoardProps = {
   title?: string;
   subtitle?: string;
-  selectedTileIds?: HealthRealmId[];
   tiles?: HealthRealmTile[];
   framed?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -73,11 +109,39 @@ type TileDetailLayout = {
 
 const TILE_BOARD_ASPECT_RATIO = 1574.92 / 1322.5;
 const GUIDE_VIEWBOX = { height: 1324.14, width: 1575.1 };
-const DEFAULT_TILE_IDS: HealthRealmId[] = [...DEFAULT_HEALTH_TILE_IDS];
-const DEFAULT_TILE_BACKGROUND = {
-  dark: "#3F3F46",
-  light: "#F8FAFC",
+const DEFAULT_TILE_IDS: HealthRealmId[] = ["medication", "fitness", "nutrition", "mentalHealth"];
+const NUTRITION_CONSUMED_COLOR = "#35A96B";
+const NUTRITION_PENDING_COLOR = "#9CA3AF";
+const DEFAULT_NUTRITION_CONSUMPTION_ITEMS: NutritionConsumptionItem[] = [
+  { color: NUTRITION_CONSUMED_COLOR, consumed: true, icon: "bowl", id: "breakfast", label: "Breakfast" },
+  { color: NUTRITION_CONSUMED_COLOR, consumed: true, icon: "smoothie", id: "morning-smoothie", label: "Morning smoothie" },
+  { color: NUTRITION_CONSUMED_COLOR, consumed: true, icon: "bowl", id: "snack-bowl", label: "Snack bowl" },
+  { color: NUTRITION_CONSUMED_COLOR, consumed: true, icon: "smoothie", id: "green-smoothie", label: "Green smoothie" },
+  { color: NUTRITION_CONSUMED_COLOR, consumed: false, icon: "bowl", id: "lunch", label: "Lunch" },
+  { color: NUTRITION_CONSUMED_COLOR, consumed: false, icon: "smoothie", id: "protein-smoothie", label: "Protein smoothie" },
+  { color: NUTRITION_CONSUMED_COLOR, consumed: false, icon: "bowl", id: "afternoon-meal", label: "Afternoon meal" },
+  { color: NUTRITION_CONSUMED_COLOR, consumed: false, icon: "smoothie", id: "evening-smoothie", label: "Evening smoothie" },
+  { color: NUTRITION_CONSUMED_COLOR, consumed: false, icon: "bowl", id: "dinner", label: "Dinner" },
+];
+const WEEKLY_GOAL_DAY_ORDER: WeeklyGoalDay["day"][] = ["S", "M", "T", "W", "T2", "F", "S2"];
+const WEEKLY_GOAL_DAY_LABELS: Record<WeeklyGoalDay["day"], string> = {
+  F: "F",
+  M: "M",
+  S: "S",
+  S2: "S",
+  T: "T",
+  T2: "T",
+  W: "W",
 };
+const DEFAULT_WEEKLY_GOAL_DAYS: WeeklyGoalDay[] = [
+  { completed: false, day: "S", planned: false },
+  { completed: true, day: "M", planned: true },
+  { completed: true, day: "T", planned: true },
+  { completed: true, day: "W", planned: true },
+  { completed: false, day: "T2", planned: true },
+  { completed: false, day: "F", planned: true },
+  { completed: false, day: "S2", planned: false },
+];
 const POSITION_TO_SHAPE_MAP: Record<RealmTilePosition, TileShapePosition> = {
   today: "topLeft",
   upcoming: "topRight",
@@ -121,22 +185,217 @@ const TILE_DETAIL_LAYOUTS: Record<TileShapePosition, TileDetailLayout> = {
   },
 } as const;
 
-function toHealthRealmDefinition(config: HealthRealmConfig): HealthRealmDefinition {
-  return {
-    ...config,
-    darkTileBackground: config.darkTileBackground ?? DEFAULT_TILE_BACKGROUND.dark,
-    defaultPrimaryStat: config.placeholderPrimary,
+export const HEALTH_REALM_THEMES: Record<HealthRealmId, HealthRealmDefinition> = {
+  general: {
+    accentColor: "#111827",
+    darkTileBackground: "#3F3F46",
+    defaultPrimaryStat: "Today",
     defaultProgress: 50,
-    defaultSecondaryStatus: config.placeholderSecondary,
-    lightTileBackground: config.lightTileBackground ?? DEFAULT_TILE_BACKGROUND.light,
-    route: config.route as Href,
+    defaultSecondaryStatus: "Health overview",
+    icon: "+",
+    id: "general",
+    label: "Health",
+    lightTileBackground: "#F8FAFC",
+    progressType: "ring",
+    route: "/health",
     visible: true,
-  };
+  },
+  fitness: {
+    accentColor: "#C96A2B",
+    darkTileBackground: "#4A342A",
+    defaultPrimaryStat: "55%",
+    defaultProgress: 55,
+    defaultSecondaryStatus: "Weekly goal",
+    icon: "F",
+    id: "fitness",
+    label: "Fitness",
+    lightTileBackground: "#F7D9C2",
+    progressType: "ring",
+    route: "/fitness",
+    visible: true,
+  },
+  nutrition: {
+    accentColor: "#35A96B",
+    darkTileBackground: "#284539",
+    defaultPrimaryStat: "4/9",
+    defaultProgress: 44,
+    defaultSecondaryStatus: "5 meals + 4 smoothies",
+    icon: "N",
+    id: "nutrition",
+    label: "Nutrition",
+    lightTileBackground: "#CDEFD9",
+    progressType: "line",
+    route: "/food",
+    visible: true,
+  },
+  medication: {
+    accentColor: "#56C596",
+    darkTileBackground: "#294C40",
+    defaultPrimaryStat: "3/4",
+    defaultProgress: 75,
+    defaultSecondaryStatus: "Next dose 19:00",
+    icon: "M",
+    id: "medication",
+    label: "Medication",
+    lightTileBackground: "#C9F4D2",
+    progressType: "ring",
+    route: "/medication",
+    visible: true,
+  },
+  cycle: {
+    accentColor: "#C2185B",
+    darkTileBackground: "#4D2637",
+    defaultPrimaryStat: "Day 18",
+    defaultProgress: 62,
+    defaultSecondaryStatus: "Fertile window",
+    icon: "C",
+    id: "cycle",
+    label: "Cycle",
+    lightTileBackground: "#F4C8DA",
+    progressType: "ring",
+    route: "/cycle",
+    visible: true,
+  },
+  baby: {
+    accentColor: "#F4B18A",
+    darkTileBackground: "#514036",
+    defaultPrimaryStat: "2 logs",
+    defaultProgress: 42,
+    defaultSecondaryStatus: "Feeding due soon",
+    icon: "B",
+    id: "baby",
+    label: "Baby",
+    lightTileBackground: "#F8DDCC",
+    progressType: "ring",
+    route: "/baby-child",
+    visible: true,
+  },
+  pregnancy: {
+    accentColor: "#D8B49C",
+    darkTileBackground: "#504138",
+    defaultPrimaryStat: "Week 22",
+    defaultProgress: 55,
+    defaultSecondaryStatus: "Next checkup",
+    icon: "P",
+    id: "pregnancy",
+    label: "Pregnancy",
+    lightTileBackground: "#F1DED2",
+    progressType: "ring",
+    route: "/pregnancy",
+    visible: true,
+  },
+  family: {
+    accentColor: "#E5C94C",
+    darkTileBackground: "#514B2F",
+    defaultPrimaryStat: "5 updates",
+    defaultProgress: 68,
+    defaultSecondaryStatus: "2 shared today",
+    icon: "F",
+    id: "family",
+    label: "Family",
+    lightTileBackground: "#F5EDB8",
+    progressType: "line",
+    route: "/family-circle",
+    visible: true,
+  },
+  records: {
+    accentColor: "#8EA4C8",
+    darkTileBackground: "#354152",
+    defaultPrimaryStat: "Ready",
+    defaultProgress: 0,
+    defaultSecondaryStatus: "Set up records",
+    icon: "R",
+    id: "records",
+    label: "Records",
+    lightTileBackground: "#D8E2F1",
+    progressType: "empty",
+    route: "/records",
+    visible: true,
+  },
+  supplements: {
+    accentColor: "#A78BFA",
+    darkTileBackground: "#443A61",
+    defaultPrimaryStat: "2/3 done",
+    defaultProgress: 66,
+    defaultSecondaryStatus: "Today",
+    icon: "S",
+    id: "supplements",
+    label: "Supplements",
+    lightTileBackground: "#E3D8FF",
+    progressType: "ring",
+    route: "/supplements",
+    visible: true,
+  },
+  mentalHealth: {
+    accentColor: "#6D7DF2",
+    darkTileBackground: "#343A64",
+    defaultPrimaryStat: "😌",
+    defaultProgress: 48,
+    defaultSecondaryStatus: "Check-in due",
+    icon: "M",
+    id: "mentalHealth",
+    label: "Mental Health",
+    lightTileBackground: "#DDE2FF",
+    progressType: "line",
+    route: "/mental-health",
+    visible: true,
+  },
+};
+
+function defaultDisplayTitleForRealm(id: HealthRealmId): string {
+  switch (id) {
+    case "medication":
+      return "Antibiotic course";
+    case "fitness":
+      return "29-day plan";
+    case "nutrition":
+      return "Daily consumption";
+    case "mentalHealth":
+      return "Mood check-in";
+    case "family":
+      return "Family updates";
+    case "cycle":
+      return "Cycle tracking";
+    case "baby":
+      return "Baby care";
+    case "pregnancy":
+      return "Pregnancy plan";
+    case "records":
+      return "Health records";
+    case "supplements":
+      return "Supplement plan";
+    case "general":
+    default:
+      return "Health overview";
+  }
 }
 
-export const HEALTH_REALM_THEMES: Record<string, HealthRealmDefinition> = Object.fromEntries(
-  HEALTH_REALM_REGISTRY.map((config) => [config.id, toHealthRealmDefinition(config)])
-);
+function defaultVisualTypeForRealm(id: HealthRealmId): TopicVisualType {
+  switch (id) {
+    case "medication":
+      return "pillCount";
+    case "fitness":
+      return "fitnessBars";
+    case "nutrition":
+      return "nutritionGoalRing";
+    case "mentalHealth":
+      return "moodWave";
+    case "family":
+      return "familyBubbles";
+    case "records":
+      return "sparkline";
+    case "baby":
+    case "pregnancy":
+      return "scheduleDots";
+    case "cycle":
+      return "scheduleDots";
+    case "supplements":
+      return "alertStack";
+    case "general":
+    default:
+      return "progressRing";
+  }
+}
 
 function clampPercent(percent: number): number {
   return Math.max(0, Math.min(100, percent));
@@ -166,10 +425,6 @@ function guideRectToTileStyle(shapePosition: TileShapePosition, rect: GuideRect)
   };
 }
 
-function accentForRealm(definition: HealthRealmDefinition, isDark: boolean): string {
-  return definition.id === "health_overview" && isDark ? "#FFFFFF" : definition.accentColor;
-}
-
 function resolveTile(tile: HealthRealmTile): HealthRealmTile & {
   contextLine: string;
   definition: HealthRealmDefinition;
@@ -180,22 +435,23 @@ function resolveTile(tile: HealthRealmTile): HealthRealmTile & {
   progressType: RealmProgressType;
   visualType: TopicVisualType;
 } {
-  const definition = HEALTH_REALM_THEMES[tile.id] ?? toHealthRealmDefinition(getHealthRealmConfig(tile.id));
-  const defaultPrimaryValue = definition.defaultPrimaryStat;
-  const defaultContextLine = tile.contextLine ?? definition.placeholderContext ?? definition.defaultSecondaryStatus;
+  const definition = HEALTH_REALM_THEMES[tile.id];
+  const nutritionItems = nutritionItemsOrDefault(tile.nutritionConsumptionItems);
+  const defaultPrimaryValue = tile.id === "nutrition" ? nutritionPrimaryValue(nutritionItems) : definition.defaultPrimaryStat;
+  const defaultContextLine = tile.id === "nutrition" ? nutritionContextLine(nutritionItems) : definition.defaultSecondaryStatus;
 
   return {
     ...tile,
     contextLine: tile.contextLine ?? tile.secondaryStatus ?? defaultContextLine,
     definition,
-    displayTitle: tile.displayTitle ?? definition.shortLabel ?? definition.placeholderContext ?? definition.category,
+    displayTitle: tile.displayTitle ?? defaultDisplayTitleForRealm(tile.id),
     moduleLabel: tile.moduleLabel ?? definition.label,
     primaryValue: tile.primaryValue ?? tile.primaryStat ?? defaultPrimaryValue,
     primaryStat: tile.primaryStat ?? defaultPrimaryValue,
     secondaryStatus: tile.secondaryStatus ?? defaultContextLine,
     progress: clampPercent(tile.progress ?? definition.defaultProgress),
-    progressType: tile.progressType ?? "line",
-    visualType: tile.visualType ?? definition.visualType,
+    progressType: tile.progressType ?? definition.progressType,
+    visualType: tile.visualType ?? defaultVisualTypeForRealm(tile.id),
   };
 }
 
@@ -203,11 +459,47 @@ function getTopicVisualType(tile: ReturnType<typeof resolveTile>): TopicVisualTy
   return tile.visualType;
 }
 
+function defaultTiles(): HealthRealmTile[] {
+  return DEFAULT_TILE_IDS.map((id) => ({ id }));
+}
+
+function nutritionItemsOrDefault(items?: NutritionConsumptionItem[]): NormalizedNutritionConsumptionItem[] {
+  const sourceItems = items && items.length > 0 ? items : DEFAULT_NUTRITION_CONSUMPTION_ITEMS;
+
+  return sourceItems.map((item) => ({
+    ...item,
+    color: item.consumed ? item.color ?? NUTRITION_CONSUMED_COLOR : NUTRITION_PENDING_COLOR,
+  }));
+}
+
+function nutritionPrimaryValue(items?: NutritionConsumptionItem[]): string {
+  const normalizedItems = nutritionItemsOrDefault(items);
+  const consumedCount = normalizedItems.filter((item) => item.consumed).length;
+
+  return `${consumedCount}/${normalizedItems.length}`;
+}
+
+function nutritionContextLine(items?: NutritionConsumptionItem[]): string {
+  const normalizedItems = nutritionItemsOrDefault(items);
+  const meals = normalizedItems.filter((item) => item.icon === "bowl").length;
+  const smoothies = normalizedItems.filter((item) => item.icon === "smoothie").length;
+  const parts = [];
+
+  if (meals > 0) {
+    parts.push(`${meals} meal${meals === 1 ? "" : "s"}`);
+  }
+
+  if (smoothies > 0) {
+    parts.push(`${smoothies} smoothie${smoothies === 1 ? "" : "s"}`);
+  }
+
+  return parts.length > 0 ? parts.join(" + ") : "Daily consumption";
+}
+
 export function HealthRealmBoard({
   title = "Health Control",
   subtitle = "Your modular health board",
-  selectedTileIds = DEFAULT_TILE_IDS,
-  tiles,
+  tiles = defaultTiles(),
   framed = true,
   style,
   onRealmPress,
@@ -226,10 +518,7 @@ export function HealthRealmBoard({
   const boardHeight = boardWidth / TILE_BOARD_ASPECT_RATIO;
   const headingColor = framed || isDark ? "#ffffff" : "#111827";
   const mutedColor = framed || isDark ? "#b8b8c0" : "#64748b";
-  // TODO: Replace this local/default selected id list with persisted user board preferences.
-  const selectedTiles = useMemo(() => tiles ?? selectedTileIds.map((id) => ({ id })), [selectedTileIds, tiles]);
-  const resolvedTiles = useMemo(() => selectedTiles.slice(0, 4).map(resolveTile), [selectedTiles]);
-  const selectedMenuRealm = tileMenuRealmId ? HEALTH_REALM_THEMES[tileMenuRealmId] ?? toHealthRealmDefinition(getHealthRealmConfig(tileMenuRealmId)) : null;
+  const resolvedTiles = useMemo(() => tiles.slice(0, 4).map(resolveTile), [tiles]);
 
   const positionedTiles = ["today", "upcoming", "attention", "family"].map((position, index) => ({
     position: position as RealmTilePosition,
@@ -298,12 +587,12 @@ export function HealthRealmBoard({
         <CenterConnector />
       </View>
 
-      {selectedMenuRealm ? (
+      {tileMenuRealmId ? (
         <HealthRealmMenu
           isOpen
           onAction={handleTileAction}
           onOpenChange={(open) => !open && setTileMenuRealmId(null)}
-          realm={selectedMenuRealm}
+          realm={HEALTH_REALM_THEMES[tileMenuRealmId]}
         />
       ) : null}
     </View>
@@ -326,7 +615,6 @@ function HealthRealmTileButton({
   const { definition } = tile;
   const textColor = isDark ? "#f8fafc" : "#151515";
   const mutedTileText = isDark ? "rgba(248,250,252,0.72)" : "rgba(21,21,21,0.68)";
-  const accent = accentForRealm(definition, isDark);
   const shapePosition = POSITION_TO_SHAPE_MAP[position];
   const layout = TILE_DETAIL_LAYOUTS[shapePosition];
   const isLeftColumn = layout.column === "left";
@@ -398,13 +686,13 @@ function HealthRealmTileButton({
         <View style={[styles.visualClip, isLeftColumn ? styles.visualClipLeft : styles.visualClipRight]}>
           <View style={styles.visualCanvas}>
             <TopicVisual
-              accent={accent}
-              emoji={definition.emoji}
+              accent={definition.accentColor}
               isDark={isDark}
-              label={definition.label}
               lineData={tile.lineData}
+              nutritionConsumptionItems={tile.nutritionConsumptionItems}
               progress={tile.progress}
               type={visualType}
+              weeklyGoalDays={tile.weeklyGoalDays}
             />
           </View>
         </View>
@@ -415,136 +703,65 @@ function HealthRealmTileButton({
 
 function TopicVisual({
   accent,
-  emoji,
   isDark,
-  label,
   lineData,
+  nutritionConsumptionItems,
   progress,
   type,
+  weeklyGoalDays,
 }: {
   accent: string;
-  emoji?: string;
   isDark: boolean;
-  label: string;
   lineData?: number[];
+  nutritionConsumptionItems?: NutritionConsumptionItem[];
   progress: number;
   type: TopicVisualType;
+  weeklyGoalDays?: WeeklyGoalDay[];
 }): JSX.Element {
   switch (type) {
-    case "icon_svg":
-      return <IconSvgVisual accent={accent} isDark={isDark} />;
-    case "mini_line":
-      return <SparklineVisual accent={accent} isDark={isDark} lineData={lineData} progress={progress} />;
-    case "mini_bar":
-      return <SleepBarsVisual accent={accent} isDark={isDark} progress={progress} />;
-    case "emoji_status":
-      return <EmojiStatusVisual accent={accent} emoji={emoji} isDark={isDark} label={label} />;
-    case "timeline":
-      return <ScheduleDotsVisual accent={accent} isDark={isDark} />;
-    case "log_stack":
-      return <AlertStackVisual accent={accent} isDark={isDark} progress={progress} />;
-    case "checklist":
+    case "pillCount":
       return <PillCountVisual accent={accent} isDark={isDark} progress={progress} />;
-    case "calendar_dot":
-      return <CalendarDotVisual accent={accent} isDark={isDark} />;
-    case "status_badge":
-      return <StatusBadgeVisual accent={accent} isDark={isDark} />;
-    case "avatar_stack":
+    case "scheduleDots":
+      return <ScheduleDotsVisual accent={accent} isDark={isDark} />;
+    case "alertStack":
+      return <AlertStackVisual accent={accent} isDark={isDark} progress={progress} />;
+    case "familyBubbles":
       return <FamilyBubblesVisual accent={accent} isDark={isDark} progress={progress} />;
-    case "setup_card":
-      return <SetupCardVisual accent={accent} isDark={isDark} />;
-    case "none":
+    case "fitnessBars":
+      return <FitnessBarsVisual accent={accent} isDark={isDark} weeklyGoalDays={weeklyGoalDays} />;
+    case "mealDots":
+      return <MealDotsVisual accent={accent} isDark={isDark} progress={progress} />;
+    case "moodWave":
+      return <MoodWaveVisual accent={accent} isDark={isDark} lineData={lineData} progress={progress} />;
+    case "nutritionGoalRing":
+      return <NutritionConsumptionVisual isDark={isDark} items={nutritionItemsOrDefault(nutritionConsumptionItems)} />;
+    case "sparkline":
+      return <SparklineVisual accent={accent} isDark={isDark} lineData={lineData} progress={progress} />;
+    case "sleepBars":
+      return <SleepBarsVisual accent={accent} isDark={isDark} progress={progress} />;
+    case "progressRing":
     default:
-      return <View />;
+      return <RealmProgressVisual accent={accent} isDark={isDark} lineData={lineData} progress={progress} type="ring" />;
   }
 }
 
-function IconSvgVisual({ accent, isDark }: { accent: string; isDark: boolean }): JSX.Element {
-  const muted = isDark ? "rgba(255,255,255,0.22)" : "rgba(15,23,42,0.14)";
-
-  return (
-    <Svg height="100%" viewBox="0 0 144 64" width="100%">
-      <Rect fill="none" height="38" rx="14" stroke={muted} strokeWidth="4" width="72" x="36" y="13" />
-      <Path d="M56 36l11-14l11 18l9-11l12 14" fill="none" stroke={accent} strokeLinecap="round" strokeLinejoin="round" strokeWidth="5" />
-      <Circle cx="55" cy="25" fill={accent} r="4" />
-    </Svg>
-  );
-}
-
-function EmojiStatusVisual({ accent, emoji, isDark, label }: { accent: string; emoji?: string; isDark: boolean; label: string }): JSX.Element {
-  const surface = isDark ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.62)";
-  const textColor = isDark ? "#F8FAFC" : "#111827";
-  const status = label.length > 10 ? label.slice(0, 10) : label;
-
-  return (
-    <View style={[styles.emojiStatusBadge, { backgroundColor: surface, borderColor: accent }]}>
-      <Text style={styles.emojiStatusEmoji}>{emoji ?? "+"}</Text>
-      <View style={[styles.emojiStatusPill, { backgroundColor: accent }]}>
-        <Text numberOfLines={1} style={[styles.emojiStatusText, { color: textColor }]}>
-          {status}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-function CalendarDotVisual({ accent, isDark }: { accent: string; isDark: boolean }): JSX.Element {
-  const muted = isDark ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.14)";
-  const softAccent = isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.48)";
-
-  return (
-    <Svg height="100%" viewBox="0 0 144 64" width="100%">
-      <Rect fill={softAccent} height="44" rx="14" stroke={muted} strokeWidth="3" width="78" x="33" y="10" />
-      <Line stroke={muted} strokeLinecap="round" strokeWidth="3" x1="45" x2="99" y1="24" y2="24" />
-      <Circle cx="72" cy="39" fill={accent} r="9" />
-      <Circle cx="72" cy="39" fill="none" opacity="0.38" r="17" stroke={accent} strokeWidth="4" />
-    </Svg>
-  );
-}
-
-function StatusBadgeVisual({ accent, isDark }: { accent: string; isDark: boolean }): JSX.Element {
-  const muted = isDark ? "rgba(255,255,255,0.22)" : "rgba(15,23,42,0.14)";
-  const fill = isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.52)";
-
-  return (
-    <Svg height="100%" viewBox="0 0 144 64" width="100%">
-      <Rect fill={fill} height="34" rx="17" stroke={muted} strokeWidth="3" width="96" x="24" y="15" />
-      <Circle cx="44" cy="32" fill={accent} r="7" />
-      <Line stroke={accent} strokeLinecap="round" strokeWidth="5" x1="60" x2="96" y1="32" y2="32" />
-      <Circle cx="106" cy="22" fill={accent} r="4" />
-    </Svg>
-  );
-}
-
-function SetupCardVisual({ accent, isDark }: { accent: string; isDark: boolean }): JSX.Element {
-  const muted = isDark ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.16)";
-  const fill = isDark ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.52)";
-
-  return (
-    <Svg height="100%" viewBox="0 0 144 64" width="100%">
-      <Rect fill={fill} height="42" rx="13" stroke={muted} strokeWidth="3" width="78" x="33" y="11" />
-      <Path d="M72 24v18M63 33h18" stroke={accent} strokeLinecap="round" strokeWidth="6" />
-      <Circle cx="104" cy="17" fill={accent} r="5" />
-    </Svg>
-  );
-}
-
 function PillCountVisual({ accent, isDark, progress }: { accent: string; isDark: boolean; progress: number }): JSX.Element {
-  const muted = isDark ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.18)";
-  const checkedRows = Math.max(1, Math.min(3, Math.round((clampPercent(progress) / 100) * 3)));
+  const muted = isDark ? "rgba(255,255,255,0.26)" : "rgba(15,23,42,0.18)";
+  const filledCount = Math.max(0, Math.min(4, Math.round((clampPercent(progress) / 100) * 4)));
 
   return (
     <Svg height="100%" viewBox="0 0 144 64" width="100%">
-      {[0, 1, 2].map((index) => {
-        const isChecked = index < checkedRows;
-        const y = 18 + index * 15;
-        const stroke = isChecked ? accent : muted;
+      {[0, 1, 2, 3].map((index) => {
+        const isFilled = index < filledCount;
+        const x = 12 + index * 32;
+        const y = index % 2 === 0 ? 12 : 28;
+        const fill = isFilled ? accent : muted;
+        const cap = isFilled ? "rgba(255,255,255,0.34)" : isDark ? "rgba(255,255,255,0.13)" : "rgba(255,255,255,0.42)";
 
         return (
           <Fragment key={index}>
-            <Circle cx="28" cy={y} fill={isChecked ? accent : "none"} r="6" stroke={stroke} strokeWidth="3" />
-            {isChecked ? <Path d={`M24 ${y}l3 3l6-7`} fill="none" stroke="#ffffff" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" /> : null}
-            <Line stroke={stroke} strokeLinecap="round" strokeWidth="5" x1="43" x2={isChecked ? 112 - index * 8 : 86} y1={y} y2={y} />
+            <Rect fill={fill} height="20" rx="10" transform={`rotate(-28 ${x + 18} ${y + 10})`} width="36" x={x} y={y} />
+            <Path d={`M${x + 18} ${y + 3}v14`} opacity="0.7" stroke={cap} strokeLinecap="round" strokeWidth="2.8" transform={`rotate(-28 ${x + 18} ${y + 10})`} />
           </Fragment>
         );
       })}
@@ -592,6 +809,122 @@ function AlertStackVisual({ accent, isDark, progress }: { accent: string; isDark
   );
 }
 
+function FitnessBarsVisual({ accent, isDark, weeklyGoalDays }: { accent: string; isDark: boolean; weeklyGoalDays?: WeeklyGoalDay[] }): JSX.Element {
+  const muted = isDark ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.18)";
+  const text = isDark ? "rgba(255,255,255,0.72)" : "rgba(15,23,42,0.62)";
+  const dayMap = new Map((weeklyGoalDays && weeklyGoalDays.length > 0 ? weeklyGoalDays : DEFAULT_WEEKLY_GOAL_DAYS).map((day) => [day.day, day]));
+
+  return (
+    <Svg height="100%" viewBox="0 0 144 64" width="100%">
+      {WEEKLY_GOAL_DAY_ORDER.map((day, index) => {
+        const item = dayMap.get(day) ?? DEFAULT_WEEKLY_GOAL_DAYS[index];
+        const x = 16 + index * 18.7;
+        const dotFill = item.completed ? accent : item.planned ? "none" : muted;
+        const dotStroke = item.planned ? accent : muted;
+        const dotOpacity = item.planned ? 1 : 0.45;
+
+        return (
+          <Fragment key={day}>
+            <SvgText fill={text} fontSize="10" fontWeight="800" textAnchor="middle" x={x} y="21">
+              {WEEKLY_GOAL_DAY_LABELS[day]}
+            </SvgText>
+            <Circle cx={x} cy="40" fill={dotFill} opacity={dotOpacity} r="5.5" stroke={dotStroke} strokeWidth="2.4" />
+          </Fragment>
+        );
+      })}
+    </Svg>
+  );
+}
+
+function MealDotsVisual({ accent, isDark, progress }: { accent: string; isDark: boolean; progress: number }): JSX.Element {
+  const muted = isDark ? "rgba(255,255,255,0.24)" : "rgba(15,23,42,0.16)";
+  const complete = Math.max(0, Math.min(5, Math.round((clampPercent(progress) / 100) * 5)));
+
+  return (
+    <Svg height="100%" viewBox="0 0 144 64" width="100%">
+      {[0, 1, 2, 3, 4].map((index) => (
+        <Circle cx={32 + index * 20} cy="32" fill={index < complete ? accent : muted} key={index} r={index === 2 ? 8 : 6} />
+      ))}
+      <Path d="M48 46c14 7 34 7 48 0" fill="none" stroke={muted} strokeLinecap="round" strokeWidth="4" />
+    </Svg>
+  );
+}
+
+function NutritionConsumptionVisual({ isDark, items }: { isDark: boolean; items: NormalizedNutritionConsumptionItem[] }): JSX.Element {
+  const inactive = isDark ? "rgba(255,255,255,0.26)" : NUTRITION_PENDING_COLOR;
+  const orderedItems = items.slice(0, 10);
+
+  return (
+    <Svg height="100%" viewBox="0 0 144 64" width="100%">
+      {orderedItems.map((item, index) => {
+        const topRow = index < 5;
+        const x = 9 + (index % 5) * 26;
+        const y = topRow ? 4 : 34;
+        const color = item.consumed ? item.color : inactive;
+
+        return item.icon === "smoothie" ? (
+          <SmoothieConsumptionIcon color={color} key={item.id} x={x} y={y} />
+        ) : (
+          <BowlConsumptionIcon color={color} key={item.id} x={x} y={y} />
+        );
+      })}
+    </Svg>
+  );
+}
+
+function BowlConsumptionIcon({ color, x, y }: { color: string; x: number; y: number }): JSX.Element {
+  return (
+    <Fragment>
+      <Path d={`M${x + 3} ${y + 13}h18c-1.2 7-4.8 10-9 10s-7.8-3-9-10z`} fill={color} />
+      <Path d={`M${x + 2} ${y + 12}c3-3 17-3 20 0`} fill="none" stroke={color} strokeLinecap="round" strokeWidth="3" />
+      <Circle cx={x + 8} cy={y + 8} fill={color} r="2.4" />
+      <Circle cx={x + 14} cy={y + 7} fill={color} r="2.1" />
+      <Circle cx={x + 18} cy={y + 9.5} fill={color} r="1.9" />
+    </Fragment>
+  );
+}
+
+function SmoothieConsumptionIcon({ color, x, y }: { color: string; x: number; y: number }): JSX.Element {
+  return (
+    <Fragment>
+      <Path d={`M${x + 7} ${y + 7}h12l-2 16h-8z`} fill="none" stroke={color} strokeLinejoin="round" strokeWidth="2.7" />
+      <Path d={`M${x + 8} ${y + 12}h10`} stroke={color} strokeLinecap="round" strokeWidth="2.4" />
+      <Path d={`M${x + 13} ${y + 6}l5-5`} stroke={color} strokeLinecap="round" strokeWidth="2.5" />
+      <Circle cx={x + 15} cy={y + 18} fill={color} r="2.5" />
+    </Fragment>
+  );
+}
+
+function MoodWaveVisual({ accent, isDark, lineData, progress }: { accent: string; isDark: boolean; lineData?: number[]; progress: number }): JSX.Element {
+  const muted = isDark ? "rgba(255,255,255,0.18)" : "rgba(15,23,42,0.11)";
+  const grid = isDark ? "rgba(255,255,255,0.14)" : "rgba(15,23,42,0.1)";
+  const fill = isDark ? "rgba(109,125,242,0.22)" : "rgba(109,125,242,0.18)";
+  const data = lineData && lineData.length >= 3 ? lineData : [42, 48, 44, 56, 52, 61, progress];
+  const left = 14;
+  const right = 130;
+  const bottom = 52;
+  const chartHeight = 38;
+  const points = data.map((value, index) => {
+    const x = left + (index / (data.length - 1)) * (right - left);
+    const y = bottom - (clampPercent(value) / 100) * chartHeight;
+
+    return `${x},${y}`;
+  });
+  const areaPoints = [`${left},${bottom}`, ...points, `${right},${bottom}`].join(" ");
+  const lastPoint = points[points.length - 1].split(",").map(Number);
+
+  return (
+    <Svg height="100%" viewBox="0 0 144 64" width="100%">
+      <Line stroke={grid} strokeLinecap="round" strokeWidth="2" x1={left} x2={right} y1="20" y2="20" />
+      <Line stroke={grid} strokeLinecap="round" strokeWidth="2" x1={left} x2={right} y1="38" y2="38" />
+      <Polyline fill={fill} points={areaPoints} />
+      <Polyline fill="none" points={points.join(" ")} stroke={accent} strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" />
+      <Circle cx={lastPoint[0]} cy={lastPoint[1]} fill={isDark ? "#343A64" : "#DDE2FF"} r="6" stroke={accent} strokeWidth="3" />
+      <Circle cx="24" cy="50" fill={muted} r="3" />
+    </Svg>
+  );
+}
+
 function FamilyBubblesVisual({ accent, isDark, progress }: { accent: string; isDark: boolean; progress: number }): JSX.Element {
   const muted = isDark ? "rgba(255,255,255,0.26)" : "rgba(15,23,42,0.16)";
   const updateDot = clampPercent(progress) > 50 ? accent : muted;
@@ -603,6 +936,56 @@ function FamilyBubblesVisual({ accent, isDark, progress }: { accent: string; isD
       <Circle cx="94" cy="36" fill={muted} r="12" />
       <Path d="M34 50c19 8 47 8 70 0" fill="none" stroke={muted} strokeLinecap="round" strokeWidth="4" />
       <Circle cx="110" cy="20" fill={updateDot} r="5" />
+    </Svg>
+  );
+}
+
+function RealmProgressVisual({
+  accent,
+  isDark,
+  lineData,
+  progress,
+  type,
+}: {
+  accent: string;
+  isDark: boolean;
+  lineData?: number[];
+  progress: number;
+  type: RealmProgressType;
+}): JSX.Element {
+  const track = isDark ? "rgba(255,255,255,0.22)" : "rgba(15,23,42,0.14)";
+
+  if (type === "line") {
+    return <SparklineVisual accent={accent} isDark={isDark} lineData={lineData} progress={progress} />;
+  }
+
+  if (type === "empty") {
+    return (
+      <Svg height="100%" viewBox="0 0 144 64" width="100%">
+        <Circle cx="72" cy="32" fill="none" r="19" stroke={track} strokeWidth="6" />
+        <Path d="M59 32h26" stroke={accent} strokeLinecap="round" strokeWidth="6" />
+      </Svg>
+    );
+  }
+
+  const radius = 20;
+  const circumference = 2 * Math.PI * radius;
+  const dash = (clampPercent(progress) / 100) * circumference;
+
+  return (
+    <Svg height="100%" viewBox="0 0 144 64" width="100%">
+      <Circle cx="72" cy="32" fill="none" r={radius} stroke={track} strokeWidth="6" />
+      <Circle
+        cx="72"
+        cy="32"
+        fill="none"
+        r={radius}
+        stroke={accent}
+        strokeDasharray={`${dash} ${circumference - dash}`}
+        strokeLinecap="round"
+        strokeWidth="6"
+        transform="rotate(-90 72 32)"
+      />
     </Svg>
   );
 }
@@ -791,21 +1174,6 @@ const styles = StyleSheet.create({
   dataCopyRight: { alignItems: "flex-end", flex: 0.6, justifyContent: "center", minWidth: 0, paddingLeft: 1, paddingRight: 8 },
   dataCopyStack: { justifyContent: "center", width: "100%" },
   displayTitleText: { fontSize: 11.5, fontWeight: "700", includeFontPadding: false, letterSpacing: 0, lineHeight: 13.5, textAlign: "left", width: "100%" },
-  emojiStatusBadge: {
-    alignItems: "center",
-    alignSelf: "center",
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 5,
-    justifyContent: "center",
-    minHeight: 54,
-    minWidth: 70,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  emojiStatusEmoji: { fontSize: 20, includeFontPadding: false, lineHeight: 22 },
-  emojiStatusPill: { borderRadius: 999, maxWidth: 62, paddingHorizontal: 7, paddingVertical: 3 },
-  emojiStatusText: { fontSize: 8.5, fontWeight: "900", includeFontPadding: false, letterSpacing: 0, lineHeight: 10, textAlign: "center" },
   primaryLeft: { alignItems: "flex-start", flex: 0.4, justifyContent: "center", minWidth: 0, paddingLeft: 10, paddingRight: 0 },
   primaryRight: { alignItems: "flex-end", flex: 0.42, justifyContent: "center", minWidth: 0, paddingLeft: 0, paddingRight: 10 },
   primaryValueText: { fontSize: 21, fontWeight: "900", includeFontPadding: false, letterSpacing: 0, lineHeight: 22, textAlign: "left",  textAlignVertical: "center", width: "100%" },
