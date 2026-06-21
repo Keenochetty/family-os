@@ -1,13 +1,15 @@
 import { usePathname, useRouter } from "expo-router";
 import type { JSX } from "react";
 import { useEffect, useState } from "react";
-import { Platform, Pressable, StyleSheet, useColorScheme, View } from "react-native";
+import { Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
 import Svg, { Path, Rect } from "react-native-svg";
+
+import { useAppTheme } from "@/lib/theme";
 
 type NavItem = {
   href: "/" | "/calendar" | "/scan" | "/health" | "/family-circle";
@@ -118,6 +120,7 @@ function NavButton({
   onPress,
   onPressIn,
   onPressOut,
+  selectedSurfaceStyle,
 }: {
   item: NavItem;
   highlighted: boolean;
@@ -127,6 +130,7 @@ function NavButton({
   onPress: () => void;
   onPressIn: () => void;
   onPressOut: () => void;
+  selectedSurfaceStyle: ViewStyle;
 }): JSX.Element {
   const activeProgress = useSharedValue(highlighted ? 1 : 0);
 
@@ -151,7 +155,7 @@ function NavButton({
       style={styles.navButton}
     >
       <View style={styles.iconHalo}>
-        <Animated.View style={[styles.activeIconBackground, activeTileStyle]} />
+        <Animated.View style={[styles.activeIconBackground, selectedSurfaceStyle, activeTileStyle]} />
         <NavIcon name={item.icon} color={highlighted ? activeIconColor : inactiveIconColor} />
       </View>
     </Pressable>
@@ -162,12 +166,9 @@ export function FloatingNav(): JSX.Element {
   const pathname = usePathname();
   const appRouter = useRouter();
   const [pressedHref, setPressedHref] = useState<NavItem["href"] | null>(null);
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const activeColor = "#082f49";
-  const inactiveColor = isDark ? "#94a3b8" : "#64748b";
-  const glassColor = isDark ? "rgba(20, 24, 31, 0.62)" : "rgba(255, 255, 255, 0.62)";
-  const borderColor = isDark ? "rgba(255, 255, 255, 0.14)" : "rgba(255, 255, 255, 0.86)";
+  const { isDark, setMode, theme } = useAppTheme();
+  const activeColor = theme.nav.activeIcon;
+  const inactiveColor = theme.nav.inactiveIcon;
 
   const overrideHref = pressedHref !== null && !isActive(pathname, pressedHref) ? pressedHref : null;
 
@@ -176,52 +177,84 @@ export function FloatingNav(): JSX.Element {
     appRouter.replace(href);
   }
 
+  function toggleThemeMode(): void {
+    setMode(isDark ? "light" : "dark");
+  }
+
   return (
     <View pointerEvents="box-none" style={styles.wrap}>
-      <View style={[styles.glassBar, { backgroundColor: glassColor, borderColor }, frostedWeb]}>
-        {NAV_ITEMS.map((item) => {
-          const active = isActive(pathname, item.href);
-          const highlighted = overrideHref === null ? active : overrideHref === item.href;
+      {/* DEV THEME TEST CONTROL — keep until global theme QA is complete */}
+      <Pressable
+        accessibilityLabel="Toggle light and dark mode"
+        accessibilityRole="button"
+        onPress={toggleThemeMode}
+        style={({ pressed }) => [
+          styles.themeToggle,
+          {
+            backgroundColor: isDark ? theme.surfaceRaised : theme.nav.activeNavSurface,
+            borderColor: isDark ? theme.borderHighlight : "rgba(255,255,255,0.16)",
+            shadowColor: theme.shadowDeep,
+          },
+          pressed && styles.themeTogglePressed,
+        ]}
+      >
+        <Text style={styles.themeToggleText}>{isDark ? "Light mode" : "Dark mode"}</Text>
+        <View style={[styles.themeToggleDot, { backgroundColor: isDark ? "#F5F6F7" : "#FFFFFF" }]} />
+      </Pressable>
+      <View style={[styles.navOuterTray, { backgroundColor: theme.nav.navOuterTray, shadowColor: theme.shadowDeep }]}>
+        <View
+          style={[
+            styles.glassBar,
+            {
+              backgroundColor: theme.nav.navSurface,
+              borderColor: theme.borderSoft,
+            },
+          ]}
+        >
+          {NAV_ITEMS.map((item) => {
+            const active = isActive(pathname, item.href);
+            const highlighted = overrideHref === null ? active : overrideHref === item.href;
 
-          return (
-            <NavButton
-              activeIconColor={activeColor}
-              highlighted={highlighted}
-              inactiveIconColor={inactiveColor}
-              item={item}
-              key={item.href}
-              onPress={() => handleNavPress(item.href)}
-              onPressIn={() => setPressedHref(item.href)}
-              onPressOut={() => setPressedHref(null)}
-              selected={active}
-            />
-          );
-        })}
+            return (
+              <NavButton
+                activeIconColor={activeColor}
+                highlighted={highlighted}
+                inactiveIconColor={inactiveColor}
+                item={item}
+                key={item.href}
+                onPress={() => handleNavPress(item.href)}
+                onPressIn={() => setPressedHref(item.href)}
+                onPressOut={() => setPressedHref(null)}
+                selected={active}
+                selectedSurfaceStyle={{
+                  backgroundColor: theme.nav.activeNavSurface,
+                  borderColor: theme.nav.navHighlight,
+                  borderWidth: 1,
+                  elevation: 4,
+                  shadowColor: theme.shadowSoft,
+                  shadowOffset: { height: 3, width: 0 },
+                  shadowOpacity: 1,
+                  shadowRadius: 8,
+                }}
+              />
+            );
+          })}
+        </View>
       </View>
     </View>
   );
 }
 
 const glassSurface = {
-  borderWidth: 1,
-  elevation: 0,
-  shadowOpacity: 0,
+  borderWidth: 0,
 } as const;
-
-const frostedWeb =
-  Platform.OS === "web"
-    ? ({
-        backdropFilter: "blur(26px) saturate(180%)",
-        WebkitBackdropFilter: "blur(26px) saturate(180%)",
-      } as object)
-    : null;
 
 const styles = StyleSheet.create({
   wrap: {
     alignItems: "center",
     backgroundColor: "transparent",
     bottom: 34,
-    flexDirection: "row",
+    gap: 12,
     justifyContent: "center",
     left: 16,
     position: "absolute",
@@ -232,14 +265,24 @@ const styles = StyleSheet.create({
   glassBar: {
     ...glassSurface,
     alignItems: "center",
-    backgroundColor: "transparent",
     borderRadius: 18,
+    borderWidth: 1,
     flexDirection: "row",
     height: 52,
     justifyContent: "space-around",
     maxWidth: 356,
     overflow: "hidden",
     paddingHorizontal: 6,
+    width: "100%",
+  },
+  navOuterTray: {
+    borderRadius: 22,
+    elevation: 8,
+    maxWidth: 364,
+    padding: 4,
+    shadowOffset: { height: 6, width: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 14,
     width: "100%",
   },
   navButton: {
@@ -260,8 +303,36 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     width: 48,
   },
+  themeToggle: {
+    alignItems: "center",
+    borderRadius: 999,
+    borderWidth: 1,
+    elevation: 9,
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 42,
+    paddingHorizontal: 18,
+    shadowOffset: { height: 7, width: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 16,
+  },
+  themeToggleDot: {
+    borderRadius: 999,
+    height: 8,
+    width: 8,
+  },
+  themeTogglePressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.97 }],
+  },
+  themeToggleText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0,
+    lineHeight: 14,
+  },
   activeIconBackground: {
-    backgroundColor: "rgba(56, 189, 248, 0.92)",
     borderRadius: 13,
     bottom: 0,
     left: 0,

@@ -24,12 +24,18 @@ function HeaderIcon({ color, name }: { color: string; name: "bell" | "settings" 
 
   return (
     <Svg height={19} viewBox="0 0 24 24" width={19} fill="none">
-      <Circle cx={12} cy={12} r={3.2} stroke={color} strokeWidth={2} />
       <Path
-        d="M12 3.8v2.1M12 18.1v2.1M5.2 5.2l1.5 1.5M17.3 17.3l1.5 1.5M3.8 12h2.1M18.1 12h2.1M5.2 18.8l1.5-1.5M17.3 6.7l1.5-1.5"
+        d="M10.4 3.5h3.2l.48 2.1c.45.16.88.34 1.26.58l1.88-1.15 2.25 2.25-1.15 1.88c.24.38.43.81.58 1.26l2.1.48v3.2l-2.1.48c-.16.45-.34.88-.58 1.26l1.15 1.88-2.25 2.25-1.88-1.15c-.38.24-.81.43-1.26.58l-.48 2.1h-3.2l-.48-2.1a7.3 7.3 0 0 1-1.26-.58l-1.88 1.15-2.25-2.25 1.15-1.88a7.3 7.3 0 0 1-.58-1.26l-2.1-.48v-3.2l2.1-.48c.16-.45.34-.88.58-1.26L4.53 7.28l2.25-2.25 1.88 1.15c.38-.24.81-.43 1.26-.58l.48-2.1Z"
+        stroke={color}
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+      />
+      <Circle cx={12} cy={12} r={3.1} stroke={color} strokeWidth={1.8} />
+      <Path
+        d="M12 12h.01"
         stroke={color}
         strokeLinecap="round"
-        strokeWidth={2}
+        strokeWidth={2.4}
       />
     </Svg>
   );

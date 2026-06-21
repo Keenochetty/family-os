@@ -9,7 +9,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  useColorScheme,
   View,
   type StyleProp,
   type TextStyle,
@@ -25,6 +24,7 @@ import { Menu as HeroMenu } from "heroui-native";
 import Svg, { Path } from "react-native-svg";
 
 import { PageShell } from "@/components/PageShell";
+import { useAppTheme, type CalendarTheme } from "@/lib/theme";
 import {
   calendarOwners,
   createCalendarEvent,
@@ -201,9 +201,9 @@ function LocalMenuItem({
 }
 
 function LocalMenuItemTitle({ children }: { children: ReactNode }): JSX.Element {
-  const isDark = useColorScheme() === "dark";
+  const { theme } = useAppTheme();
 
-  return <Text style={[styles.menuItemTitle, { color: isDark ? "#f8fafc" : "#0f172a" }]}>{children}</Text>;
+  return <Text style={[styles.menuItemTitle, { color: theme.textPrimary }]}>{children}</Text>;
 }
 
 function LocalMenuLabel({ children, style }: { children: ReactNode; style?: StyleProp<TextStyle> }): JSX.Element {
@@ -431,8 +431,8 @@ function getOwner(ownerId: string): CalendarOwner {
 }
 
 export default function CalendarScreen(): JSX.Element {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { theme: appTheme } = useAppTheme();
+  const theme = appTheme.calendar;
   const today = useMemo(() => new Date(), []);
   const todayKey = toDateKey(today);
   const [monthDate, setMonthDate] = useState(startOfMonth(today));
@@ -453,26 +453,16 @@ export default function CalendarScreen(): JSX.Element {
   }));
   const scrollY = useSharedValue(0);
 
-  const theme = useMemo(
-    () => ({
-      background: isDark ? "#09090b" : "#f8fafc",
-      panel: isDark ? "#111318" : "#ffffff",
-      panelMuted: isDark ? "#171a21" : "#f1f5f9",
-      text: isDark ? "#f8fafc" : "#0f172a",
-      muted: isDark ? "#94a3b8" : "#64748b",
-      faint: isDark ? "#272b35" : "#e2e8f0",
-      selected: isDark ? "#38bdf8" : "#bae6fd",
-      selectedText: isDark ? "#082f49" : "#0f172a",
-    }),
-    [isDark],
-  );
-
   const monthDays = useMemo(() => buildMonthDays(monthDate), [monthDate]);
   const selectedDate = useMemo(() => parseDateKey(selectedDateKey), [selectedDateKey]);
   const weekDays = useMemo(() => buildWeekDays(selectedDate), [selectedDate]);
   const selectedEvents = useMemo(
     () => sortEvents(events.filter((event) => event.date === selectedDateKey)),
     [events, selectedDateKey],
+  );
+  const selectedHealthReminderCount = useMemo(
+    () => selectedEvents.filter((event) => !["family", "general", "work"].includes(event.type)).length,
+    [selectedEvents],
   );
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === selectedEventId) ?? null,
@@ -748,7 +738,7 @@ export default function CalendarScreen(): JSX.Element {
         key={day.key}
         onLongPress={() => openDayQuickActions(day.key)}
         onPress={() => selectDay(day.key)}
-        style={[styles.dayCell, compact && styles.weekDayCell]}
+        style={({ pressed }) => [styles.dayCell, compact && styles.weekDayCell, pressed && styles.dayCellPressed]}
       >
         <View
           style={[
@@ -756,16 +746,23 @@ export default function CalendarScreen(): JSX.Element {
             compact && styles.weekDateBlock,
             hasPeriod && { borderColor: "rgba(251, 113, 133, 0.62)", borderWidth: 2 },
             hasFertile && { borderColor: "rgba(244, 114, 182, 0.38)", borderWidth: 2 },
-            isToday && !selected && { borderColor: theme.selected, borderWidth: 1 },
-            selected && { backgroundColor: theme.selected, borderColor: theme.selected },
+            isToday && !selected && { borderColor: theme.todayRing, borderWidth: 1 },
+            selected && !hasPeriod && !hasFertile && { borderColor: theme.selectedDayPanelBorder },
           ]}
         >
+          {selected ? (
+            <View pointerEvents="none" style={[styles.selectedPressedSurface, { backgroundColor: theme.selectedDaySurface }]}>
+              <View style={[styles.selectedPressedTopShadow, { backgroundColor: theme.selectedDayShadow }]} />
+              <View style={[styles.selectedPressedBottomHighlight, { backgroundColor: theme.calendarBottomHighlight }]} />
+              <View style={[styles.selectedPressedBorder, { borderColor: theme.selectedDayPanelBorder }]} />
+            </View>
+          ) : null}
           <View style={styles.dateBox}>
             <Text
               style={[
                 styles.dayText,
-                { color: day.inMonth ? theme.text : theme.muted },
-                selected && { color: theme.selectedText, fontWeight: "800" },
+                { color: day.inMonth ? theme.textPrimary : theme.outOfMonthText },
+                selected && { color: theme.selectedDayText, fontWeight: "800" },
               ]}
             >
               {day.day}
@@ -775,6 +772,9 @@ export default function CalendarScreen(): JSX.Element {
             {dayEvents.slice(0, 3).map((event) => (
               <View key={event.id} style={[styles.dot, { backgroundColor: eventTypeMeta[event.type].color }]} />
             ))}
+            {dayEvents.length > 3 ? (
+              <Text style={[styles.dotOverflow, { color: selected ? theme.selectedDayText : theme.textMuted }]}>+{dayEvents.length - 3}</Text>
+            ) : null}
           </View>
         </View>
       </Pressable>
@@ -784,7 +784,7 @@ export default function CalendarScreen(): JSX.Element {
   function renderAgenda(): JSX.Element {
     if (selectedEvents.length === 0) {
       return (
-        <Animated.View style={[styles.emptyState, { backgroundColor: theme.panel, borderColor: theme.faint }, agendaFadeStyle]}>
+        <Animated.View style={[styles.emptyState, { backgroundColor: theme.eventCard, borderColor: theme.eventCardBorder }, agendaFadeStyle]}>
           <Text style={[styles.emptyTitle, { color: theme.text }]}>Nothing planned for today</Text>
           <Text style={[styles.emptyText, { color: theme.muted }]}>
             Add a reminder, appointment, workout, meal, or health log.
@@ -826,7 +826,11 @@ export default function CalendarScreen(): JSX.Element {
                     }}
                     style={[
                       styles.eventRow,
-                      { backgroundColor: theme.panel, borderColor: eventSelected ? theme.selected : theme.faint },
+                      {
+                        backgroundColor: theme.eventCard,
+                        borderColor: eventSelected ? theme.selectedDayAccent : theme.eventCardBorder,
+                        shadowColor: theme.eventCardShadow,
+                      },
                       eventSelected && styles.eventRowSelected,
                     ]}
                   >
@@ -842,16 +846,16 @@ export default function CalendarScreen(): JSX.Element {
                       </Text>
                     </View>
                     {eventSelected ? (
-                      <View style={[styles.selectionChip, { backgroundColor: theme.selected }]}>
-                        <Text style={[styles.selectionChipText, { color: theme.selectedText }]}>OK</Text>
+                      <View style={[styles.selectionChip, { backgroundColor: theme.selectedDaySurface }]}>
+                        <Text style={[styles.selectionChipText, { color: theme.selectedDayText }]}>OK</Text>
                       </View>
                     ) : shared ? (
                       <View style={[styles.avatarChip, { backgroundColor: owner.color }]}>
                         <Text style={styles.avatarText}>{owner.initials}</Text>
                       </View>
                     ) : (
-                      <View style={[styles.privateChip, { borderColor: theme.faint }]}>
-                        <Text style={[styles.privateChipText, { color: theme.muted }]}>Private</Text>
+                      <View style={[styles.privateChip, { backgroundColor: theme.privacyChip, borderColor: theme.privacyChipBorder }]}>
+                        <Text style={[styles.privateChipText, { color: theme.privacyText }]}>Private</Text>
                       </View>
                     )}
                   </Pressable>
@@ -875,11 +879,23 @@ export default function CalendarScreen(): JSX.Element {
             <Text style={[styles.headerTitle, { color: theme.text }]}>Calendar</Text>
             <Text style={[styles.headerSubtitle, { color: theme.muted }]}>Health, routines, family</Text>
           </View>
-          <Pressable onPress={() => setSheetMode("filter")} style={[styles.iconButton, { borderColor: theme.faint }]}>
-            <FilterIcon color={theme.text} />
+          <Pressable
+            onPress={() => setSheetMode("filter")}
+            style={[
+              styles.iconButton,
+              { backgroundColor: theme.controlSurface, borderColor: theme.controlBorder, shadowColor: theme.eventCardShadow },
+            ]}
+          >
+            <FilterIcon color={theme.iconPrimary} />
           </Pressable>
-          <Pressable onPress={() => setSheetMode("calendarMenu")} style={[styles.iconButton, { borderColor: theme.faint }]}>
-            <MenuIcon color={theme.text} />
+          <Pressable
+            onPress={() => setSheetMode("calendarMenu")}
+            style={[
+              styles.iconButton,
+              { backgroundColor: theme.controlSurface, borderColor: theme.controlBorder, shadowColor: theme.eventCardShadow },
+            ]}
+          >
+            <MenuIcon color={theme.iconPrimary} />
           </Pressable>
         </View>
 
@@ -916,8 +932,24 @@ export default function CalendarScreen(): JSX.Element {
             </Animated.View>
           </View>
 
-          <Animated.View style={[styles.selectedDateHeader, inlineSelectedDateStyle]}>
-            <SelectedDateNote dateLabel={formatFullDate(selectedDateKey)} onAdd={() => openQuickAdd()} />
+          <Animated.View
+            style={[
+              styles.selectedDateHeader,
+              {
+                backgroundColor: theme.selectedDayPanel,
+                borderColor: theme.selectedDayPanelBorder,
+                shadowColor: theme.eventCardShadow,
+              },
+              inlineSelectedDateStyle,
+            ]}
+          >
+            <SelectedDateNote
+              dateLabel={formatFullDate(selectedDateKey)}
+              eventCount={selectedEvents.length}
+              healthReminderCount={selectedHealthReminderCount}
+              onAdd={() => openQuickAdd()}
+              theme={theme}
+            />
           </Animated.View>
           {renderAgenda()}
         </AnimatedScrollView>
@@ -946,7 +978,7 @@ export default function CalendarScreen(): JSX.Element {
         </Animated.View>
 
         {selectMode ? (
-          <View style={[styles.bulkBar, { backgroundColor: theme.panel, borderColor: theme.faint }]}>
+          <View style={[styles.bulkBar, { backgroundColor: theme.selectedDayPanel, borderColor: theme.selectedDayPanelBorder }]}>
             <Text style={[styles.bulkBarText, { color: theme.text }]}>{selectedEventIds.length} selected</Text>
             <Pressable onPress={() => setSheetMode("bulkActions")} style={styles.bulkBarButton}>
               <Text style={styles.bulkBarButtonText}>Actions</Text>
@@ -1386,15 +1418,34 @@ export default function CalendarScreen(): JSX.Element {
   );
 }
 
-function SelectedDateNote({ dateLabel, onAdd }: { dateLabel: string; onAdd: () => void }): JSX.Element {
+function SelectedDateNote({
+  dateLabel,
+  eventCount,
+  healthReminderCount,
+  onAdd,
+  theme,
+}: {
+  dateLabel: string;
+  eventCount: number;
+  healthReminderCount: number;
+  onAdd: () => void;
+  theme: CalendarTheme;
+}): JSX.Element {
+  const eventLabel = eventCount === 1 ? "1 event" : `${eventCount} events`;
+  const reminderLabel = healthReminderCount === 1 ? "1 health reminder" : `${healthReminderCount} health reminders`;
+
   return (
     <>
+      <View style={[styles.selectedDateAccentRail, { backgroundColor: theme.selectedDayAccent }]} />
       <View>
-        <Text style={styles.todayLabel}>Selected day</Text>
-        <Text style={styles.selectedDateText}>{dateLabel}</Text>
+        <Text style={[styles.todayLabel, { color: theme.textMuted }]}>Selected day</Text>
+        <Text style={[styles.selectedDateText, { color: theme.textPrimary }]}>{dateLabel}</Text>
+        <Text style={[styles.selectedDateSummary, { color: theme.textSecondary }]}>
+          {eventLabel} - {reminderLabel}
+        </Text>
       </View>
-      <Pressable onPress={onAdd} style={styles.smallAddButton}>
-        <Text style={styles.smallAddButtonText}>+</Text>
+      <Pressable onPress={onAdd} style={[styles.smallAddButton, { backgroundColor: theme.selectedDayAccent }]}>
+        <Text style={[styles.smallAddButtonText, { color: theme.selectedDayText }]}>+</Text>
       </Pressable>
     </>
   );
@@ -1427,11 +1478,7 @@ function CalendarSheet({
   title: string;
   visible: boolean;
 }): JSX.Element | null {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const backgroundColor = isDark ? "#111318" : "#ffffff";
-  const textColor = isDark ? "#f8fafc" : "#0f172a";
-  const borderColor = isDark ? "#272b35" : "#e2e8f0";
+  const { theme } = useAppTheme();
 
   if (!visible) {
     return null;
@@ -1442,14 +1489,14 @@ function CalendarSheet({
       <BottomSheet.Portal>
         <BottomSheet.Overlay style={styles.modalScrim} />
         <BottomSheet.Content
-          backgroundStyle={[styles.sheetBackground, { backgroundColor, borderColor }]}
+          backgroundStyle={[styles.sheetBackground, { backgroundColor: theme.surfaceRaised, borderColor: theme.borderSoft }]}
           contentContainerProps={{ style: styles.sheetContent }}
           enablePanDownToClose
         >
           <View style={styles.sheetHeader}>
-            <BottomSheet.Title style={[styles.sheetTitle, { color: textColor }]}>{title}</BottomSheet.Title>
+            <BottomSheet.Title style={[styles.sheetTitle, { color: theme.textPrimary }]}>{title}</BottomSheet.Title>
             <BottomSheet.Close style={styles.closeButton}>
-              <Text style={[styles.closeButtonText, { color: textColor }]}>×</Text>
+              <Text style={[styles.closeButtonText, { color: theme.textPrimary }]}>×</Text>
             </BottomSheet.Close>
           </View>
           {children}
@@ -1460,16 +1507,12 @@ function CalendarSheet({
 }
 
 function DetailRow({ label, value }: { label: string; value: string }): JSX.Element {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const textColor = isDark ? "#f8fafc" : "#0f172a";
-  const mutedColor = isDark ? "#94a3b8" : "#64748b";
-  const borderColor = isDark ? "#272b35" : "#e2e8f0";
+  const { theme } = useAppTheme();
 
   return (
-    <View style={[styles.detailRow, { borderBottomColor: borderColor }]}>
-      <Text style={[styles.detailLabel, { color: mutedColor }]}>{label}</Text>
-      <Text style={[styles.detailValue, { color: textColor }]}>{value}</Text>
+    <View style={[styles.detailRow, { borderBottomColor: theme.borderSoft }]}>
+      <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>{label}</Text>
+      <Text style={[styles.detailValue, { color: theme.textPrimary }]}>{value}</Text>
     </View>
   );
 }
@@ -1637,8 +1680,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 12,
     borderWidth: 1,
+    elevation: 3,
     height: 38,
     justifyContent: "center",
+    shadowOffset: { height: 3, width: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
     width: 38,
   },
   iconButtonText: {
@@ -1661,12 +1708,15 @@ const styles = StyleSheet.create({
   calendarPanel: {
     backgroundColor: "transparent",
     borderRadius: 0,
+    borderWidth: 0,
+    elevation: 0,
     left: 0,
     overflow: "hidden",
     paddingHorizontal: 0,
     paddingTop: 0,
     position: "absolute",
     right: 0,
+    shadowOpacity: 0,
     top: 0,
     zIndex: 4,
   },
@@ -1747,6 +1797,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: `${100 / 7}%`,
   },
+  dayCellPressed: {
+    transform: [{ scale: 0.96 }],
+  },
   weekDayCell: {
     height: 46,
   },
@@ -1757,8 +1810,42 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 42,
     justifyContent: "center",
+    overflow: "hidden",
     paddingTop: 3,
     width: 42,
+  },
+  selectedPressedSurface: {
+    borderRadius: 8,
+    bottom: 3,
+    left: 3,
+    overflow: "hidden",
+    position: "absolute",
+    right: 3,
+    top: 3,
+  },
+  selectedPressedTopShadow: {
+    height: 9,
+    left: 0,
+    opacity: 0.85,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  selectedPressedBottomHighlight: {
+    bottom: 0,
+    height: 2,
+    left: 3,
+    position: "absolute",
+    right: 3,
+  },
+  selectedPressedBorder: {
+    borderRadius: 8,
+    borderWidth: 1,
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
   },
   weekDateBlock: {
     height: 42,
@@ -1776,9 +1863,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   dotRow: {
+    alignItems: "center",
     flexDirection: "row",
     gap: 3,
-    height: 7,
+    height: 9,
     marginTop: 1,
   },
   dot: {
@@ -1786,21 +1874,37 @@ const styles = StyleSheet.create({
     height: 4,
     width: 4,
   },
+  dotOverflow: {
+    fontSize: 7,
+    fontWeight: "900",
+    lineHeight: 8,
+    marginLeft: 1,
+  },
   scrollContent: {
-    paddingBottom: 170,
+    paddingBottom: 222,
     paddingTop: 0,
   },
   selectedDateHeader: {
     alignItems: "center",
-    backgroundColor: "#0f2f57",
     borderRadius: 18,
+    borderWidth: 1,
+    elevation: 5,
     flexDirection: "row",
+    gap: 12,
     justifyContent: "space-between",
     marginBottom: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
     position: "relative",
+    shadowOffset: { height: 7, width: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 18,
     zIndex: 20,
+  },
+  selectedDateAccentRail: {
+    alignSelf: "stretch",
+    borderRadius: 999,
+    width: 4,
   },
   bulkBar: {
     alignItems: "center",
@@ -1842,29 +1946,31 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   todayLabel: {
-    color: "rgba(255, 255, 255, 0.68)",
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 0,
     textTransform: "uppercase",
   },
   selectedDateText: {
-    color: "#ffffff",
     fontSize: 18,
     fontWeight: "800",
     letterSpacing: 0,
     marginTop: 3,
   },
+  selectedDateSummary: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0,
+    marginTop: 4,
+  },
   smallAddButton: {
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.14)",
     borderRadius: 12,
     height: 40,
     justifyContent: "center",
     width: 40,
   },
   smallAddButtonText: {
-    color: "#ffffff",
     fontSize: 24,
     fontWeight: "500",
   },
@@ -1903,12 +2009,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 15,
     borderWidth: 1,
+    elevation: 3,
     flexDirection: "row",
     gap: 12,
     minHeight: 70,
     overflow: "hidden",
     paddingHorizontal: 12,
     paddingVertical: 10,
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 10,
   },
   eventRowSelected: {
     borderWidth: 2,

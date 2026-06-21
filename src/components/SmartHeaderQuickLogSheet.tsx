@@ -1,6 +1,7 @@
 import type { JSX, ReactNode } from "react";
-import { Modal, Pressable, StyleSheet, Text, useColorScheme, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { raisedSurface, useAppTheme } from "@/lib/theme";
 import type { SmartHeaderAction } from "@/lib/smartHeaderTypes";
 
 type SmartHeaderQuickLogSheetProps = {
@@ -85,31 +86,27 @@ function sheetOptionsForAction(action: SmartHeaderAction): { label: string; acce
 }
 
 export function SmartHeaderQuickLogSheet({ action, onClose, onOpenRoute }: SmartHeaderQuickLogSheetProps): JSX.Element | null {
-  const isDark = useColorScheme() === "dark";
+  const { theme } = useAppTheme();
 
   if (!action) {
     return null;
   }
 
-  const background = isDark ? "#18181B" : "#FFFFFF";
-  const textColor = isDark ? "#F8FAFC" : "#0F172A";
-  const mutedColor = isDark ? "rgba(248,250,252,0.66)" : "rgba(15,23,42,0.58)";
-  const borderColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.08)";
   const options = sheetOptionsForAction(action);
 
   return (
     <Modal animationType="fade" onRequestClose={onClose} transparent visible>
       <View style={styles.root}>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.scrim} />
-        <View style={[styles.sheet, { backgroundColor: background, borderColor }]}>
+        <View style={[styles.sheet, raisedSurface(theme)]}>
           <View style={styles.handle} />
           <View style={styles.header}>
             <View style={[styles.accent, { backgroundColor: action.accentColor }]} />
             <View style={styles.copy}>
-              <Text numberOfLines={1} style={[styles.title, { color: textColor }]}>
+              <Text numberOfLines={1} style={[styles.title, { color: theme.textPrimary }]}>
                 {action.title}
               </Text>
-              <Text numberOfLines={2} style={[styles.subtitle, { color: mutedColor }]}>
+              <Text numberOfLines={2} style={[styles.subtitle, { color: theme.textSecondary }]}>
                 {action.subtitle}
               </Text>
             </View>
@@ -126,7 +123,7 @@ export function SmartHeaderQuickLogSheet({ action, onClose, onOpenRoute }: Smart
               <Text style={styles.primaryText}>Open full tracker</Text>
             </Pressable>
             <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.close, pressed && styles.pressed]}>
-              <Text style={[styles.closeText, { color: mutedColor }]}>Close</Text>
+              <Text style={[styles.closeText, { color: theme.textSecondary }]}>Close</Text>
             </Pressable>
           </View>
         </View>

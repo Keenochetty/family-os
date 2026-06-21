@@ -21,6 +21,7 @@ import {
   type NutritionConsumptionItem,
   type WeeklyGoalDay,
 } from "@/lib/healthFocusRegistry";
+import { raisedSurface, selectedSurface, useAppTheme } from "@/lib/theme";
 
 export type HealthRealmId =
   | "general"
@@ -256,6 +257,7 @@ export function HealthRealmBoard({
   const { width } = useWindowDimensions();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
+  const { theme } = useAppTheme();
   const initialSlots = useMemo(() => selectedFocusSlots ?? (tiles ? slotsFromLegacyTiles(tiles) : DEFAULT_HEALTH_WIDGET_SLOTS), [selectedFocusSlots, tiles]);
   const [widgetSlots, setWidgetSlots] = useState<HealthWidgetSlot[]>(initialSlots);
   const [activeSlotId, setActiveSlotId] = useState<HealthWidgetSlot["slotId"] | null>(null);
@@ -264,8 +266,8 @@ export function HealthRealmBoard({
   const cardWidth = Math.min(width - 32, framed ? 420 : 480);
   const boardWidth = cardWidth - (framed ? 36 : 0);
   const boardHeight = boardWidth / TILE_BOARD_ASPECT_RATIO;
-  const headingColor = framed || isDark ? "#ffffff" : "#111827";
-  const mutedColor = framed || isDark ? "#b8b8c0" : "#64748b";
+  const headingColor = theme.textPrimary;
+  const mutedColor = theme.textSecondary;
   const activeTile = useMemo(() => {
     const slot = widgetSlots.find((item) => item.slotId === activeSlotId);
 
@@ -326,7 +328,7 @@ export function HealthRealmBoard({
   }
 
   return (
-    <View style={[styles.container, framed ? styles.framedCard : styles.frameless, { width: cardWidth }, style]}>
+    <View style={[styles.container, framed ? styles.framedCard : styles.frameless, framed && raisedSurface(theme), { width: cardWidth }, style]}>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
           <Text style={[styles.heading, { color: headingColor }]}>{title}</Text>
@@ -352,7 +354,6 @@ export function HealthRealmBoard({
         <CenterConnector />
         {activeTile ? (
           <HealthWidgetFocusPopover
-            isDark={isDark}
             onAction={handleTileAction}
             onClose={() => setActiveSlotId(null)}
             onFocusSelect={(focusId) => replaceSlotFocus(activeTile.slotId, focusId)}
@@ -831,33 +832,36 @@ function TileShapeSvg({
 }
 
 function CenterConnector(): JSX.Element {
+  const { isDark } = useAppTheme();
+  const iconColor = isDark ? "#F5F6F7" : "#090A0C";
+  const backingColor = isDark ? "rgba(5,6,7,0.34)" : "rgba(255,255,255,0.42)";
+
   return (
     <View pointerEvents="none" style={styles.centerConnector}>
       <Svg height="100%" viewBox="0 0 24 24" width="100%">
-        <Path d="M8.15 19.725q-.375-.275-.55-.7L5.3 13H2q-.425 0-.712-.288T1 12t.288-.712T2 11h4q.325 0 .563.175t.362.475L9 17.1l4.6-12.125q.175-.425.55-.7T15 4t.85.275t.55.7L18.7 11H22q.425 0 .713.288T23 12t-.288.713T22 13h-4q-.325 0-.562-.175t-.363-.475L15 6.9l-4.6 12.125q-.175.425-.55.7T9 20t-.85-.275" fill="#ffffff" />
+        <Circle cx="12" cy="12" fill={backingColor} r="11" />
+        <Path d="M8.15 19.725q-.375-.275-.55-.7L5.3 13H2q-.425 0-.712-.288T1 12t.288-.712T2 11h4q.325 0 .563.175t.362.475L9 17.1l4.6-12.125q.175-.425.55-.7T15 4t.85.275t.55.7L18.7 11H22q.425 0 .713.288T23 12t-.288.713T22 13h-4q-.325 0-.562-.175t-.363-.475L15 6.9l-4.6 12.125q-.175.425-.55.7T9 20t-.85-.275" fill={iconColor} />
       </Svg>
     </View>
   );
 }
 
 function HealthWidgetFocusPopover({
-  isDark,
   onAction,
   onClose,
   onFocusSelect,
   tile,
 }: {
-  isDark: boolean;
   onAction: (action: HealthTileMenuAction, tile: ResolvedHealthFocusTile) => void;
   onClose: () => void;
   onFocusSelect: (focusId: string) => void;
   tile: ResolvedHealthFocusTile;
 }): JSX.Element {
   const [mode, setMode] = useState<"actions" | "replace">("actions");
-  const background = isDark ? "#222226" : "#FFFFFF";
-  const textColor = isDark ? "#F8FAFC" : "#111827";
-  const mutedColor = isDark ? "rgba(248,250,252,0.66)" : "rgba(17,24,39,0.62)";
-  const borderColor = isDark ? "rgba(255,255,255,0.1)" : "rgba(15,23,42,0.1)";
+  const { theme } = useAppTheme();
+  const textColor = theme.textPrimary;
+  const mutedColor = theme.textSecondary;
+  const borderColor = theme.borderSoft;
   const groups = getHealthFocusGroups();
   const positionStyle = popoverStyleForSlot(tile.slotId);
   const headerSubtitle = mode === "replace" ? tile.displayTitle : `${tile.primaryValue} - ${tile.contextLine}`;
@@ -865,7 +869,7 @@ function HealthWidgetFocusPopover({
   return (
     <>
       <Pressable onPress={onClose} style={styles.focusPopoverScrim} />
-      <View style={[styles.focusPopover, positionStyle, { backgroundColor: background, borderColor }]}>
+      <View style={[styles.focusPopover, raisedSurface(theme), positionStyle]}>
         <View style={styles.focusSheetHeader}>
           <View style={[styles.focusAccentMark, { backgroundColor: tile.definition.accentColor }]} />
           <View style={styles.focusHeaderCopy}>
@@ -981,10 +985,12 @@ function HealthBoardManageSheet({
   onOpenChange: (open: boolean) => void;
   textColor: string;
 }): JSX.Element {
+  const { theme } = useAppTheme();
+
   return (
     <Menu isOpen={isOpen} onOpenChange={onOpenChange} presentation="popover">
       <Menu.Trigger asChild>
-        <Pressable accessibilityLabel="Manage health board" accessibilityRole="button" style={styles.menuButton}>
+        <Pressable accessibilityLabel="Manage health board" accessibilityRole="button" style={[styles.menuButton, selectedSurface(theme)]}>
           <KebabMenuIcon color={textColor} />
         </Pressable>
       </Menu.Trigger>

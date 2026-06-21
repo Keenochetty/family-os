@@ -1,9 +1,10 @@
 import type { PropsWithChildren, JSX } from "react";
-import { useColorScheme, View } from "react-native";
+import { View } from "react-native";
+
+import { useAppTheme } from "@/lib/theme";
 
 export function PageShell({ children }: PropsWithChildren): JSX.Element {
-  const colorScheme = useColorScheme();
-  const backgroundColor = colorScheme === "dark" ? "#09090b" : "#f8fafc";
+  const { theme } = useAppTheme();
 
-  return <View style={{ backgroundColor, flex: 1 }}>{children}</View>;
+  return <View style={{ backgroundColor: theme.background, flex: 1 }}>{children}</View>;
 }

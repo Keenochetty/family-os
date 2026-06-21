@@ -1,7 +1,7 @@
 import { router } from "expo-router";
 import type { JSX } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { AccessibilityInfo, Modal, Pressable, ScrollView, StyleSheet, Text, useColorScheme, View } from "react-native";
+import { AccessibilityInfo, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, {
   Extrapolation,
   interpolate,
@@ -17,6 +17,7 @@ import { SmartHeaderProfileRow } from "@/components/SmartHeaderProfileRow";
 import { SmartHeaderQuickLogSheet } from "@/components/SmartHeaderQuickLogSheet";
 import { getSmartHeaderActions } from "@/lib/smartHeaderPriorityResolver";
 import { DEFAULT_SMART_HEADER_PREFERENCES } from "@/lib/smartHeaderRegistry";
+import { raisedSurface, useAppTheme, type AppTheme } from "@/lib/theme";
 import type { SmartHeaderAction, SmartHeaderContext, SmartHeaderPreferences } from "@/lib/smartHeaderTypes";
 
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
@@ -57,13 +58,13 @@ function getInitials(name: string): string {
 }
 
 function UtilityBottomSheet({
-  isDark,
   mode,
   onClose,
+  theme,
 }: {
-  isDark: boolean;
   mode: UtilitySheet;
   onClose: () => void;
+  theme: AppTheme;
 }): JSX.Element | null {
   if (!mode) {
     return null;
@@ -74,19 +75,14 @@ function UtilityBottomSheet({
     mode === "notifications"
       ? "Notification center will connect here when app notifications are ready."
       : "Profile and app settings will connect here when the settings route is ready.";
-  const background = isDark ? "#18181B" : "#FFFFFF";
-  const textColor = isDark ? "#F8FAFC" : "#0F172A";
-  const mutedColor = isDark ? "rgba(248,250,252,0.66)" : "rgba(15,23,42,0.6)";
-  const borderColor = isDark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.08)";
-
   return (
     <Modal animationType="fade" onRequestClose={onClose} transparent visible>
       <View style={styles.sheetRoot}>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.sheetScrim} />
-        <View style={[styles.utilitySheet, { backgroundColor: background, borderColor }]}>
+        <View style={[styles.utilitySheet, raisedSurface(theme)]}>
           <View style={styles.sheetHandle} />
-          <Text style={[styles.utilityTitle, { color: textColor }]}>{title}</Text>
-          <Text style={[styles.utilitySubtitle, { color: mutedColor }]}>{subtitle}</Text>
+          <Text style={[styles.utilityTitle, { color: theme.textPrimary }]}>{title}</Text>
+          <Text style={[styles.utilitySubtitle, { color: theme.textSecondary }]}>{subtitle}</Text>
           <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.utilityButton, pressed && styles.pressed]}>
             <Text style={styles.utilityButtonText}>Close</Text>
           </Pressable>
@@ -101,8 +97,7 @@ export function SmartDailyHeader({
   displayName = "Keeno",
   preferences = DEFAULT_SMART_HEADER_PREFERENCES,
 }: SmartDailyHeaderProps): JSX.Element {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const { isDark, theme } = useAppTheme();
   const insets = useSafeAreaInsets();
   const scrollY = useSharedValue(0);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -123,8 +118,7 @@ export function SmartDailyHeader({
   );
   const actions = useMemo(() => getSmartHeaderActions(context, resolvedPreferences), [context, resolvedPreferences]);
   const activeAction = actions[Math.min(activeIndex, actions.length - 1)] ?? actions[0];
-  const headerBackground = isDark ? "#11141B" : "#EAF6D8";
-  const borderColor = isDark ? "rgba(255,255,255,0.1)" : "rgba(53,169,107,0.16)";
+  const headerIsDark = isDark;
   const collapsedHeight = insets.top + 76;
   const halfHeight = insets.top + 132;
   const expandedHeight = insets.top + 236;
@@ -186,24 +180,21 @@ export function SmartDailyHeader({
 
   return (
     <View style={styles.root}>
-      <Animated.View style={[styles.header, headerStyle, { backgroundColor: headerBackground, borderColor, paddingTop: insets.top + 12 }]}>
+      <Animated.View style={[styles.header, raisedSurface(theme), headerStyle, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerSurface}>
           <SmartHeaderProfileRow
             avatarInitials={getInitials(displayName)}
             greeting={greeting}
-            isDark={isDark}
+            isDark={headerIsDark}
             name={displayName}
             onNotificationsPress={() => setUtilitySheet("notifications")}
             onSettingsPress={() => setUtilitySheet("settings")}
           />
-          <Animated.View
-            pointerEvents={actionAreaDismissed ? "none" : "auto"}
-            style={[styles.expandedActions, { backgroundColor: headerBackground }, expandedStyle]}
-          >
+          <Animated.View pointerEvents={actionAreaDismissed ? "none" : "auto"} style={[styles.expandedActions, expandedStyle]}>
             <SmartHeaderActionCarousel
               activeIndex={activeIndex}
               actions={actions}
-              isDark={isDark}
+              isDark={headerIsDark}
               onActiveIndexChange={setActiveIndex}
               onDismiss={dismissAction}
               onDismissArea={dismissExpandedArea}
@@ -212,8 +203,8 @@ export function SmartDailyHeader({
           </Animated.View>
         </View>
         {activeAction ? (
-          <Animated.View style={[styles.compactAction, { backgroundColor: headerBackground }, compactStyle]}>
-            <SmartHeaderActionCard action={activeAction} compact embedded isDark={isDark} onDismiss={dismissAction} onQuickLog={setQuickLogAction} />
+          <Animated.View style={[styles.compactAction, compactStyle]}>
+            <SmartHeaderActionCard action={activeAction} compact embedded isDark={headerIsDark} onDismiss={dismissAction} onQuickLog={setQuickLogAction} />
           </Animated.View>
         ) : null}
       </Animated.View>
@@ -229,14 +220,13 @@ export function SmartDailyHeader({
       </AnimatedScrollView>
 
       <SmartHeaderQuickLogSheet action={quickLogAction} onClose={() => setQuickLogAction(null)} onOpenRoute={openActionRoute} />
-      <UtilityBottomSheet isDark={isDark} mode={utilitySheet} onClose={() => setUtilitySheet(null)} />
+      <UtilityBottomSheet mode={utilitySheet} onClose={() => setUtilitySheet(null)} theme={theme} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   compactAction: {
-    borderRadius: 20,
     bottom: 12,
     elevation: 5,
     left: 16,
@@ -251,7 +241,6 @@ const styles = StyleSheet.create({
     paddingBottom: 128,
   },
   expandedActions: {
-    borderRadius: 24,
     elevation: 5,
     marginTop: 16,
     shadowColor: "#000000",

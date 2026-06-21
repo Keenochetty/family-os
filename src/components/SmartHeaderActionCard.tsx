@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, Line, Path, Rect } from "react-native-svg";
 
+import { normalSurface, useAppTheme } from "@/lib/theme";
 import type { SmartHeaderAction, SmartHeaderVisualType } from "@/lib/smartHeaderTypes";
 
 type SmartHeaderActionCardProps = {
@@ -130,10 +131,10 @@ function SmartHeaderMiniVisual({ accentColor, type }: { accentColor: string; typ
 }
 
 export function SmartHeaderActionCard({ action, compact, embedded, isDark, onDismiss, onQuickLog }: SmartHeaderActionCardProps): JSX.Element {
-  const textColor = isDark ? "#F8FAFC" : "#0F172A";
-  const mutedColor = isDark ? "rgba(248,250,252,0.66)" : "rgba(15,23,42,0.58)";
-  const cardColor = embedded ? "transparent" : isDark ? "rgba(30,41,59,0.78)" : "rgba(255,255,255,0.86)";
-  const borderColor = embedded ? "transparent" : isDark ? "rgba(255,255,255,0.1)" : "rgba(15,23,42,0.08)";
+  const { theme } = useAppTheme();
+  const textColor = isDark ? "#F8FAFC" : theme.textPrimary;
+  const mutedColor = isDark ? "rgba(248,250,252,0.66)" : theme.textSecondary;
+  const surfaceStyle = embedded ? { backgroundColor: "transparent", borderColor: "transparent" } : normalSurface(theme);
 
   function handlePrimaryPress(): void {
     if (action.type === "quickLog" || action.type === "reminder" || action.type === "setup") {
@@ -158,7 +159,7 @@ export function SmartHeaderActionCard({ action, compact, embedded, isDark, onDis
   }
 
   return (
-    <View style={[styles.card, compact && styles.cardCompact, embedded && styles.cardEmbedded, { backgroundColor: cardColor, borderColor }]}>
+    <View style={[styles.card, compact && styles.cardCompact, embedded && styles.cardEmbedded, surfaceStyle]}>
       <View style={styles.cardMain}>
         <View style={[styles.visualWrap, compact && styles.visualWrapCompact]}>
           <SmartHeaderMiniVisual accentColor={action.accentColor} type={action.visualType} />
