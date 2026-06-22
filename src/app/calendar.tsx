@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import Animated, {
   interpolate,
+  useDerivedValue,
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
@@ -23,6 +24,10 @@ import Animated, {
 import { Menu as HeroMenu } from "heroui-native";
 import Svg, { Path } from "react-native-svg";
 
+import { CalendarDayCell } from "@/components/calendar/CalendarDayCell";
+import { CalendarEventRow } from "@/components/calendar/CalendarEventRow";
+import { CalendarWeekdayRow } from "@/components/calendar/CalendarWeekdayRow";
+import { createCalendarEventViewModel } from "@/components/calendar/calendarViewModels";
 import { PageShell } from "@/components/PageShell";
 import { useAppTheme, type CalendarTheme } from "@/lib/theme";
 import {
@@ -42,9 +47,12 @@ const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 const COLLAPSE_DISTANCE = 240;
 const MONTH_HEIGHT = 352;
 const WEEK_HEIGHT = 120;
-const STICKY_WEEK_TOP = 104;
-const NOTE_STICK_SCROLL_Y = 228;
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const STICKY_WEEK_TOP = 0;
+const SELECTED_DATE_DOCK_TOP = WEEK_HEIGHT + 12;
+const NOTE_STICK_SCROLL_Y = MONTH_HEIGHT - SELECTED_DATE_DOCK_TOP;
+const CALENDAR_HANDOFF_DISTANCE = 72;
+const CALENDAR_HANDOFF_START = NOTE_STICK_SCROLL_Y - CALENDAR_HANDOFF_DISTANCE;
+const CALENDAR_HANDOFF_END = NOTE_STICK_SCROLL_Y;
 type LocalButtonProps = {
   children: ReactNode;
   disabled?: boolean;
@@ -452,6 +460,7 @@ export default function CalendarScreen(): JSX.Element {
     ownerId: "me",
   }));
   const scrollY = useSharedValue(0);
+  const collapseProgress = useDerivedValue(() => Math.max(0, Math.min(1, scrollY.value / COLLAPSE_DISTANCE)));
 
   const monthDays = useMemo(() => buildMonthDays(monthDate), [monthDate]);
   const selectedDate = useMemo(() => parseDateKey(selectedDateKey), [selectedDateKey]);
@@ -527,18 +536,27 @@ export default function CalendarScreen(): JSX.Element {
   });
 
   const calendarShellStyle = useAnimatedStyle(() => ({
-    height: MONTH_HEIGHT,
+    height: interpolate(scrollY.value, [0, CALENDAR_HANDOFF_START, CALENDAR_HANDOFF_END], [MONTH_HEIGHT, MONTH_HEIGHT - 20, MONTH_HEIGHT - 52], "clamp"),
+    opacity: interpolate(scrollY.value, [CALENDAR_HANDOFF_START, CALENDAR_HANDOFF_END], [1, 0], "clamp"),
+    transform: [
+      {
+        translateY: scrollY.value * interpolate(scrollY.value, [CALENDAR_HANDOFF_START, CALENDAR_HANDOFF_END], [1, 0], "clamp"),
+      },
+    ],
   }));
 
   const monthGridStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.value, [0, COLLAPSE_DISTANCE * 0.72], [1, 0], "clamp"),
+    opacity: interpolate(scrollY.value, [CALENDAR_HANDOFF_START, CALENDAR_HANDOFF_END], [1, 0], "clamp"),
+    transform: [{ translateY: interpolate(scrollY.value, [CALENDAR_HANDOFF_START, CALENDAR_HANDOFF_END], [0, -10], "clamp") }],
   }));
 
   const weekStripStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.value, [COLLAPSE_DISTANCE * 0.56, COLLAPSE_DISTANCE * 0.9], [0, 1], "clamp"),
+    opacity: interpolate(scrollY.value, [CALENDAR_HANDOFF_START, CALENDAR_HANDOFF_END], [0, 1], "clamp"),
+    transform: [{ translateY: interpolate(scrollY.value, [CALENDAR_HANDOFF_START, CALENDAR_HANDOFF_END], [8, 0], "clamp") }],
   }));
 
   const inlineSelectedDateStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.value, [CALENDAR_HANDOFF_START, CALENDAR_HANDOFF_END], [0.98, 1], "clamp"),
     transform: [
       {
         translateY: Math.max(scrollY.value - NOTE_STICK_SCROLL_Y, 0),
@@ -547,10 +565,10 @@ export default function CalendarScreen(): JSX.Element {
   }));
 
   const agendaFadeStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(scrollY.value, [0, 44], [0.96, 1], "clamp"),
+    opacity: interpolate(collapseProgress.value, [0.65, 1], [0.96, 1], "clamp"),
     transform: [
       {
-        translateY: interpolate(scrollY.value, [0, 44], [8, 0], "clamp"),
+        translateY: interpolate(collapseProgress.value, [0.65, 1], [8, 0], "clamp"),
       },
     ],
   }));
@@ -731,53 +749,34 @@ export default function CalendarScreen(): JSX.Element {
     const isToday = day.key === todayKey;
     const hasPeriod = overlays.some((overlay) => overlay.kind === "period");
     const hasFertile = overlays.some((overlay) => overlay.kind === "fertile" || overlay.kind === "ovulation");
+    const halo = hasPeriod
+      ? { color: "rgba(251, 113, 133, 0.62)", label: "period halo", strength: "primary" as const }
+      : hasFertile
+        ? { color: "rgba(244, 114, 182, 0.38)", label: "fertile window halo", strength: "secondary" as const }
+        : undefined;
 
     return (
-      <Pressable
-        delayLongPress={320}
+      <CalendarDayCell
+        compact={compact}
+        dateLabel={formatFullDate(day.key)}
+        dayNumber={day.day}
         key={day.key}
         onLongPress={() => openDayQuickActions(day.key)}
         onPress={() => selectDay(day.key)}
-        style={({ pressed }) => [styles.dayCell, compact && styles.weekDayCell, pressed && styles.dayCellPressed]}
-      >
-        <View
-          style={[
-            styles.dateBlock,
-            compact && styles.weekDateBlock,
-            hasPeriod && { borderColor: "rgba(251, 113, 133, 0.62)", borderWidth: 2 },
-            hasFertile && { borderColor: "rgba(244, 114, 182, 0.38)", borderWidth: 2 },
-            isToday && !selected && { borderColor: theme.todayRing, borderWidth: 1 },
-            selected && !hasPeriod && !hasFertile && { borderColor: theme.selectedDayPanelBorder },
-          ]}
-        >
-          {selected ? (
-            <View pointerEvents="none" style={[styles.selectedPressedSurface, { backgroundColor: theme.selectedDaySurface }]}>
-              <View style={[styles.selectedPressedTopShadow, { backgroundColor: theme.selectedDayShadow }]} />
-              <View style={[styles.selectedPressedBottomHighlight, { backgroundColor: theme.calendarBottomHighlight }]} />
-              <View style={[styles.selectedPressedBorder, { borderColor: theme.selectedDayPanelBorder }]} />
-            </View>
-          ) : null}
-          <View style={styles.dateBox}>
-            <Text
-              style={[
-                styles.dayText,
-                { color: day.inMonth ? theme.textPrimary : theme.outOfMonthText },
-                selected && { color: theme.selectedDayText, fontWeight: "800" },
-              ]}
-            >
-              {day.day}
-            </Text>
-          </View>
-          <View style={styles.dotRow}>
-            {dayEvents.slice(0, 3).map((event) => (
-              <View key={event.id} style={[styles.dot, { backgroundColor: eventTypeMeta[event.type].color }]} />
-            ))}
-            {dayEvents.length > 3 ? (
-              <Text style={[styles.dotOverflow, { color: selected ? theme.selectedDayText : theme.textMuted }]}>+{dayEvents.length - 3}</Text>
-            ) : null}
-          </View>
-        </View>
-      </Pressable>
+        state={{
+          eventDots: dayEvents.map((event) => ({
+            color: eventTypeMeta[event.type].color,
+            id: event.id,
+            label: eventTypeMeta[event.type].label,
+          })),
+          halo,
+          isDisabled: false,
+          isOutsideMonth: !day.inMonth,
+          isSelected: selected,
+          isToday,
+        }}
+        theme={theme}
+      />
     );
   }
 
@@ -807,14 +806,13 @@ export default function CalendarScreen(): JSX.Element {
               <Text style={[styles.periodTitle, { color: theme.muted }]}>{period}</Text>
               {periodEvents.map((event) => {
                 const owner = getOwner(event.ownerId);
-                const type = eventTypeMeta[event.type];
-                const shared = event.visibility !== "private";
                 const eventSelected = selectedEventIds.includes(event.id);
+                const eventViewModel = createCalendarEventViewModel(event, owner);
 
                 return (
-                  <Pressable
+                  <CalendarEventRow
+                    event={eventViewModel}
                     key={event.id}
-                    delayLongPress={320}
                     onLongPress={() => openEventQuickActions(event.id)}
                     onPress={() => {
                       if (selectMode) {
@@ -824,41 +822,9 @@ export default function CalendarScreen(): JSX.Element {
 
                       openEventDetails(event.id);
                     }}
-                    style={[
-                      styles.eventRow,
-                      {
-                        backgroundColor: theme.eventCard,
-                        borderColor: eventSelected ? theme.selectedDayAccent : theme.eventCardBorder,
-                        shadowColor: theme.eventCardShadow,
-                      },
-                      eventSelected && styles.eventRowSelected,
-                    ]}
-                  >
-                    <View style={[styles.eventStrip, { backgroundColor: event.urgent ? "#ef4444" : type.color }]} />
-                    <View style={styles.eventTimeColumn}>
-                      <Text style={[styles.eventTime, { color: theme.text }]}>{event.time}</Text>
-                      <Text style={[styles.eventStatus, { color: theme.muted }]}>{event.status.replace("_", " ")}</Text>
-                    </View>
-                    <View style={styles.eventContent}>
-                      <Text style={[styles.eventTitle, { color: theme.text }]}>{event.title}</Text>
-                      <Text style={[styles.eventMeta, { color: theme.muted }]}>
-                        {type.label} - {event.visibility}
-                      </Text>
-                    </View>
-                    {eventSelected ? (
-                      <View style={[styles.selectionChip, { backgroundColor: theme.selectedDaySurface }]}>
-                        <Text style={[styles.selectionChipText, { color: theme.selectedDayText }]}>OK</Text>
-                      </View>
-                    ) : shared ? (
-                      <View style={[styles.avatarChip, { backgroundColor: owner.color }]}>
-                        <Text style={styles.avatarText}>{owner.initials}</Text>
-                      </View>
-                    ) : (
-                      <View style={[styles.privateChip, { backgroundColor: theme.privacyChip, borderColor: theme.privacyChipBorder }]}>
-                        <Text style={[styles.privateChipText, { color: theme.privacyText }]}>Private</Text>
-                      </View>
-                    )}
-                  </Pressable>
+                    selected={eventSelected}
+                    theme={theme}
+                  />
                 );
               })}
             </View>
@@ -869,17 +835,13 @@ export default function CalendarScreen(): JSX.Element {
   }
 
   return (
-    <PageShell>
-      <View style={[styles.screen, { backgroundColor: theme.background }]}>
-        <View style={styles.header}>
-          <View style={[styles.profileAvatar, { backgroundColor: calendarOwners[0].color }]}>
-            <Text style={styles.profileAvatarText}>{calendarOwners[0].initials}</Text>
-          </View>
-          <View style={styles.headerTitleGroup}>
-            <Text style={[styles.headerTitle, { color: theme.text }]}>Calendar</Text>
-            <Text style={[styles.headerSubtitle, { color: theme.muted }]}>Health, routines, family</Text>
-          </View>
+    <PageShell
+      title="Calendar"
+      headerRight={
+        <>
           <Pressable
+            accessibilityLabel="Open calendar filters"
+            accessibilityRole="button"
             onPress={() => setSheetMode("filter")}
             style={[
               styles.iconButton,
@@ -889,6 +851,8 @@ export default function CalendarScreen(): JSX.Element {
             <FilterIcon color={theme.iconPrimary} />
           </Pressable>
           <Pressable
+            accessibilityLabel="Open calendar menu"
+            accessibilityRole="button"
             onPress={() => setSheetMode("calendarMenu")}
             style={[
               styles.iconButton,
@@ -897,8 +861,10 @@ export default function CalendarScreen(): JSX.Element {
           >
             <MenuIcon color={theme.iconPrimary} />
           </Pressable>
-        </View>
-
+        </>
+      }
+    >
+      <View style={[styles.screen, { backgroundColor: theme.background }]}>
         <AnimatedScrollView
           bounces={false}
           contentContainerStyle={styles.scrollContent}
@@ -920,13 +886,7 @@ export default function CalendarScreen(): JSX.Element {
               </View>
 
               <Animated.View style={[styles.monthGridLayer, monthGridStyle]}>
-                <View style={styles.weekdayRow}>
-                  {WEEKDAYS.map((day) => (
-                    <Text key={day} style={[styles.weekdayText, { color: theme.muted }]}>
-                      {day}
-                    </Text>
-                  ))}
-                </View>
+                <CalendarWeekdayRow color={theme.muted} />
                 <View style={styles.monthGrid}>{monthDays.map((day) => renderDayCell(day))}</View>
               </Animated.View>
             </Animated.View>
@@ -967,13 +927,7 @@ export default function CalendarScreen(): JSX.Element {
               <Text style={[styles.monthNavText, { color: theme.muted }]}>›</Text>
             </Pressable>
           </View>
-          <View style={styles.weekdayRow}>
-            {WEEKDAYS.map((day) => (
-              <Text key={day} style={[styles.weekdayText, { color: theme.muted }]}>
-                {day}
-              </Text>
-            ))}
-          </View>
+          <CalendarWeekdayRow color={theme.muted} />
           <View style={styles.weekGrid}>{weekDays.map((day) => renderDayCell(day, true))}</View>
         </Animated.View>
 
@@ -1639,42 +1593,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
     letterSpacing: 0,
-  },  screen: {
+  },
+  screen: {
     flex: 1,
     paddingHorizontal: 12,
-    paddingTop: 54,
-  },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 14,
-  },
-  profileAvatar: {
-    alignItems: "center",
-    borderRadius: 13,
-    height: 38,
-    justifyContent: "center",
-    width: 38,
-  },
-  profileAvatarText: {
-    color: "#082f49",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  headerTitleGroup: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: 0,
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    fontWeight: "600",
-    letterSpacing: 0,
-    marginTop: 2,
+    paddingTop: 0,
   },
   iconButton: {
     alignItems: "center",

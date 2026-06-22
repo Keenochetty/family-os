@@ -5,9 +5,8 @@ import { PageShell } from "@/components/PageShell";
 
 export default function SupplementsScreen(): JSX.Element {
   return (
-    <PageShell>
+    <PageShell title="Supplements">
       <View style={styles.screen}>
-        <Text style={styles.title}>Supplements</Text>
         <Text style={styles.subtitle}>Supplement tracking will live here.</Text>
       </View>
     </PageShell>
@@ -19,13 +18,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     paddingHorizontal: 24,
-  },
-  title: {
-    color: "#111827",
-    fontSize: 28,
-    fontWeight: "900",
-    letterSpacing: 0,
-    textAlign: "center",
   },
   subtitle: {
     color: "#64748b",

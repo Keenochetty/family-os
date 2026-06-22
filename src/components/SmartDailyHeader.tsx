@@ -1,17 +1,15 @@
 import { router } from "expo-router";
 import type { JSX } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { AccessibilityInfo, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, {
-  Extrapolation,
   interpolate,
-  useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
+  withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { SmartHeaderActionCard } from "@/components/SmartHeaderActionCard";
 import { SmartHeaderActionCarousel } from "@/components/SmartHeaderActionCarousel";
 import { SmartHeaderProfileRow } from "@/components/SmartHeaderProfileRow";
 import { SmartHeaderQuickLogSheet } from "@/components/SmartHeaderQuickLogSheet";
@@ -29,6 +27,8 @@ type SmartDailyHeaderProps = {
 };
 
 type UtilitySheet = "notifications" | "settings" | null;
+
+let rememberedSmartFeedOpen = true;
 
 function getGreeting(date: Date): string {
   const hour = date.getHours();
@@ -99,13 +99,30 @@ export function SmartDailyHeader({
 }: SmartDailyHeaderProps): JSX.Element {
   const { isDark, theme } = useAppTheme();
   const insets = useSafeAreaInsets();
-  const scrollY = useSharedValue(0);
+  const actionAreaProgress = useSharedValue(rememberedSmartFeedOpen ? 1 : 0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [dismissedActionIds, setDismissedActionIds] = useState<string[]>(preferences.dismissedActionIds);
-  const [actionAreaDismissed, setActionAreaDismissed] = useState(false);
+  const [actionAreaOpen, setActionAreaOpen] = useState(() => rememberedSmartFeedOpen);
+  const [smartFeedVelocity, setSmartFeedVelocity] = useState(0);
   const [quickLogAction, setQuickLogAction] = useState<SmartHeaderAction | null>(null);
   const [utilitySheet, setUtilitySheet] = useState<UtilitySheet>(null);
   const [reduceMotion, setReduceMotion] = useState(false);
+  const pullBarResponder = PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onStartShouldSetPanResponderCapture: () => false,
+    onMoveShouldSetPanResponder: (_event, gesture) => gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onMoveShouldSetPanResponderCapture: (_event, gesture) => gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onPanResponderRelease: (_event, gesture) => {
+      if (gesture.dy > 8 || gesture.vy > 0.12) {
+        expandSmartFeed(gesture.vy);
+      }
+    },
+    onPanResponderTerminate: (_event, gesture) => {
+      if (gesture.dy > 8 || gesture.vy > 0.12) {
+        expandSmartFeed(gesture.vy);
+      }
+    },
+  });
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion).catch(() => setReduceMotion(false));
@@ -117,44 +134,40 @@ export function SmartDailyHeader({
     [dismissedActionIds, preferences],
   );
   const actions = useMemo(() => getSmartHeaderActions(context, resolvedPreferences), [context, resolvedPreferences]);
-  const activeAction = actions[Math.min(activeIndex, actions.length - 1)] ?? actions[0];
   const headerIsDark = isDark;
   const collapsedHeight = insets.top + 76;
-  const halfHeight = insets.top + 132;
   const expandedHeight = insets.top + 236;
-  const effectiveExpandedHeight = actionAreaDismissed ? halfHeight : expandedHeight;
 
-  const scrollHandler = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      scrollY.value = reduceMotion ? (event.contentOffset.y > 120 ? 220 : 0) : event.contentOffset.y;
-    },
-  });
+  useEffect(() => {
+    const speed = Math.abs(smartFeedVelocity);
+    const duration = reduceMotion ? 80 : speed >= 1.25 ? 90 : speed >= 0.75 ? 130 : speed >= 0.28 ? 170 : 230;
+
+    actionAreaProgress.value = withTiming(actionAreaOpen ? 1 : 0, { duration });
+  }, [actionAreaOpen, actionAreaProgress, reduceMotion, smartFeedVelocity]);
 
   const headerStyle = useAnimatedStyle(() => ({
-    height: interpolate(scrollY.value, [0, 80, 150], [effectiveExpandedHeight, halfHeight, collapsedHeight], Extrapolation.CLAMP),
+    height: interpolate(actionAreaProgress.value, [0, 1], [collapsedHeight, expandedHeight], "clamp"),
   }));
 
   const spacerStyle = useAnimatedStyle(() => ({
-    height: interpolate(scrollY.value, [0, 80, 150], [effectiveExpandedHeight, halfHeight, collapsedHeight], Extrapolation.CLAMP),
+    height: interpolate(actionAreaProgress.value, [0, 1], [collapsedHeight, expandedHeight], "clamp"),
   }));
 
   const expandedStyle = useAnimatedStyle(() => ({
-    opacity: actionAreaDismissed ? 0 : interpolate(scrollY.value, [0, 56, 94], [1, 0.35, 0], Extrapolation.CLAMP),
+    opacity: actionAreaProgress.value,
     transform: [
       {
-        translateY: interpolate(scrollY.value, [0, 100], [0, -16], Extrapolation.CLAMP),
+        translateY: interpolate(actionAreaProgress.value, [0, 1], [-92, 0], "clamp"),
       },
       {
-        scale: interpolate(scrollY.value, [0, 100], [1, 0.97], Extrapolation.CLAMP),
+        scale: interpolate(actionAreaProgress.value, [0, 1], [0.98, 1], "clamp"),
       },
     ],
   }));
 
-  const compactStyle = useAnimatedStyle(() => ({
-    opacity: actionAreaDismissed
-      ? interpolate(scrollY.value, [0, 110, 150], [1, 1, 0], Extrapolation.CLAMP)
-      : interpolate(scrollY.value, [46, 82, 142], [0, 1, 0], Extrapolation.CLAMP),
-    transform: [{ translateY: interpolate(scrollY.value, [46, 94], [10, 0], Extrapolation.CLAMP) }],
+  const collapsedControlStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(actionAreaProgress.value, [0, 0.3], [1, 0], "clamp"),
+    transform: [{ translateY: interpolate(actionAreaProgress.value, [0, 1], [0, 22], "clamp") }],
   }));
 
   function dismissAction(actionId: string): void {
@@ -163,11 +176,18 @@ export function SmartDailyHeader({
     // TODO: Persist dismissed action ids to Supabase/user preferences for the current day.
   }
 
-  function dismissExpandedArea(): void {
-    if (activeAction) {
-      dismissAction(activeAction.id);
-      setActionAreaDismissed(true);
-    }
+  function setSmartFeedOpen(nextOpen: boolean, velocityY = 0): void {
+    rememberedSmartFeedOpen = nextOpen;
+    setSmartFeedVelocity(velocityY);
+    setActionAreaOpen(nextOpen);
+  }
+
+  function dismissExpandedArea(velocityY = 0): void {
+    setSmartFeedOpen(false, velocityY);
+  }
+
+  function expandSmartFeed(velocityY = 0): void {
+    setSmartFeedOpen(true, velocityY);
   }
 
   function openActionRoute(action: SmartHeaderAction): void {
@@ -182,15 +202,25 @@ export function SmartDailyHeader({
     <View style={styles.root}>
       <Animated.View style={[styles.header, raisedSurface(theme), headerStyle, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerSurface}>
-          <SmartHeaderProfileRow
-            avatarInitials={getInitials(displayName)}
-            greeting={greeting}
-            isDark={headerIsDark}
-            name={displayName}
-            onNotificationsPress={() => setUtilitySheet("notifications")}
-            onSettingsPress={() => setUtilitySheet("settings")}
-          />
-          <Animated.View pointerEvents={actionAreaDismissed ? "none" : "auto"} style={[styles.expandedActions, expandedStyle]}>
+          <View style={[styles.profileLayer, { backgroundColor: theme.surfaceRaised }]}>
+            <SmartHeaderProfileRow
+              avatarInitials={getInitials(displayName)}
+              greeting={greeting}
+              isDark={headerIsDark}
+              name={displayName}
+              onNotificationsPress={() => setUtilitySheet("notifications")}
+              onSettingsPress={() => setUtilitySheet("settings")}
+            />
+          </View>
+          <Animated.View pointerEvents={actionAreaOpen ? "auto" : "none"} style={[styles.expandedActions, expandedStyle]}>
+            <Pressable
+              accessibilityLabel="Collapse smart feed"
+              accessibilityRole="button"
+              onPress={() => dismissExpandedArea()}
+              style={({ pressed }) => [styles.smartFeedControl, { backgroundColor: theme.surfaceRecessed }, pressed && styles.pressed]}
+            >
+              <Text style={[styles.smartFeedControlText, { color: theme.textSecondary }]}>Hide smart feed</Text>
+            </Pressable>
             <SmartHeaderActionCarousel
               activeIndex={activeIndex}
               actions={actions}
@@ -202,16 +232,26 @@ export function SmartDailyHeader({
             />
           </Animated.View>
         </View>
-        {activeAction ? (
-          <Animated.View style={[styles.compactAction, compactStyle]}>
-            <SmartHeaderActionCard action={activeAction} compact embedded isDark={headerIsDark} onDismiss={dismissAction} onQuickLog={setQuickLogAction} />
-          </Animated.View>
-        ) : null}
+        <Animated.View
+          pointerEvents={actionAreaOpen ? "none" : "auto"}
+          style={[styles.collapsedControl, collapsedControlStyle]}
+          {...pullBarResponder.panHandlers}
+        >
+          <Pressable
+            accessibilityLabel="Expand smart feed"
+            accessibilityRole="button"
+            onPress={() => expandSmartFeed()}
+            style={({ pressed }) => [styles.pullBarHitArea, pressed && styles.pressed]}
+          >
+            <View style={[styles.pullBarTrack, { backgroundColor: theme.surfaceRecessed }]}>
+              <View style={[styles.pullBar, { backgroundColor: theme.textPrimary }]} />
+            </View>
+          </Pressable>
+        </Animated.View>
       </Animated.View>
 
       <AnimatedScrollView
         contentContainerStyle={styles.content}
-        onScroll={scrollHandler}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
       >
@@ -226,27 +266,25 @@ export function SmartDailyHeader({
 }
 
 const styles = StyleSheet.create({
-  compactAction: {
-    bottom: 12,
-    elevation: 5,
-    left: 16,
+  collapsedControl: {
+    alignItems: "center",
+    bottom: 5,
+    left: 0,
     position: "absolute",
-    right: 16,
-    shadowColor: "#000000",
-    shadowOffset: { height: 5, width: 0 },
-    shadowOpacity: 0.14,
-    shadowRadius: 12,
+    right: 0,
+    zIndex: 8,
   },
   content: {
     paddingBottom: 128,
   },
   expandedActions: {
     elevation: 5,
-    marginTop: 16,
+    marginTop: 10,
     shadowColor: "#000000",
     shadowOffset: { height: 6, width: 0 },
     shadowOpacity: 0.14,
     shadowRadius: 14,
+    zIndex: 1,
   },
   header: {
     borderBottomWidth: 1,
@@ -272,6 +310,32 @@ const styles = StyleSheet.create({
     opacity: 0.78,
     transform: [{ scale: 0.98 }],
   },
+  pullBar: {
+    borderRadius: 999,
+    height: 4,
+    opacity: 0.76,
+    width: 42,
+  },
+  pullBarHitArea: {
+    alignItems: "center",
+    borderRadius: 999,
+    justifyContent: "center",
+    minHeight: 30,
+    minWidth: 110,
+  },
+  pullBarTrack: {
+    alignItems: "center",
+    borderRadius: 999,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  profileLayer: {
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    paddingBottom: 6,
+    zIndex: 3,
+  },
   profileExpanded: {
     marginTop: 0,
   },
@@ -280,6 +344,20 @@ const styles = StyleSheet.create({
   },
   scrollPad: {
     height: 760,
+  },
+  smartFeedControl: {
+    alignItems: "center",
+    alignSelf: "center",
+    borderRadius: 999,
+    minHeight: 28,
+    paddingHorizontal: 13,
+    paddingVertical: 6,
+  },
+  smartFeedControlText: {
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0,
+    lineHeight: 13,
   },
   sheetHandle: {
     alignSelf: "center",

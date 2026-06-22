@@ -10,7 +10,7 @@ type SmartHeaderActionCarouselProps = {
   isDark: boolean;
   onActiveIndexChange: (index: number) => void;
   onDismiss: (actionId: string) => void;
-  onDismissArea: () => void;
+  onDismissArea: (velocityY?: number) => void;
   onQuickLog: (action: SmartHeaderAction) => void;
 };
 
@@ -31,7 +31,7 @@ export function SmartHeaderActionCarousel({
     onMoveShouldSetPanResponder: (_event, gesture) => gesture.dy < -14 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.2,
     onPanResponderRelease: (_event, gesture) => {
       if (gesture.dy < -18) {
-        onDismissArea();
+        onDismissArea(gesture.vy);
       }
     },
   });

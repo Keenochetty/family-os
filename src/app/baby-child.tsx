@@ -5,9 +5,8 @@ import { PageShell } from "@/components/PageShell";
 
 export default function BabyKidsScreen(): JSX.Element {
   return (
-    <PageShell>
+    <PageShell title="Baby / Kids">
       <View style={styles.screen}>
-        <Text style={styles.title}>Baby / Kids</Text>
         <Text style={styles.subtitle}>Baby and child care tracking will live here.</Text>
       </View>
     </PageShell>
@@ -19,13 +18,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     paddingHorizontal: 24,
-  },
-  title: {
-    color: "#111827",
-    fontSize: 28,
-    fontWeight: "900",
-    letterSpacing: 0,
-    textAlign: "center",
   },
   subtitle: {
     color: "#64748b",
