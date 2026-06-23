@@ -33,6 +33,7 @@
     "expo-speech": "~56.0.3",
     "expo-splash-screen": "~56.0.10",
     "expo-status-bar": "~56.0.4",
+    "expo-workout-activity": "file:modules/expo-workout-activity",
     "expo-widgets": "~56.0.19",
     "heroui-native": "1.0.4",
     "lucide-react": "^1.21.0",

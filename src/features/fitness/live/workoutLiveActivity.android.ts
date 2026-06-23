@@ -1,4 +1,4 @@
-import { requireNativeModule } from "expo-modules-core";
+import { requireOptionalNativeModule } from "expo-modules-core";
 
 import type {
   FitnessLiveActivityState,
@@ -11,9 +11,13 @@ type ExpoWorkoutActivityModule = {
   updateWorkoutActivity: (state: FitnessLiveActivityState) => Promise<void>;
 };
 
-const ExpoWorkoutActivity = requireNativeModule<ExpoWorkoutActivityModule>("ExpoWorkoutActivity");
+const ExpoWorkoutActivity = requireOptionalNativeModule<ExpoWorkoutActivityModule>("ExpoWorkoutActivity");
 
 export async function startWorkoutLiveActivity(state: FitnessLiveActivityState): Promise<FitnessWorkoutActivityHandle | null> {
+  if (!ExpoWorkoutActivity) {
+    return null;
+  }
+
   await ExpoWorkoutActivity.startWorkoutActivity(state);
 
   return {

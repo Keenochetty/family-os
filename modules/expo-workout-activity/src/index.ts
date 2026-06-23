@@ -1,4 +1,4 @@
-import { requireNativeModule } from "expo-modules-core";
+import { requireOptionalNativeModule } from "expo-modules-core";
 
 export type AndroidWorkoutActivityState = {
   completedSets: number;
@@ -18,16 +18,28 @@ type ExpoWorkoutActivityModule = {
   updateWorkoutActivity: (state: AndroidWorkoutActivityState) => Promise<void>;
 };
 
-const ExpoWorkoutActivity = requireNativeModule<ExpoWorkoutActivityModule>("ExpoWorkoutActivity");
+const ExpoWorkoutActivity = requireOptionalNativeModule<ExpoWorkoutActivityModule>("ExpoWorkoutActivity");
 
 export function startWorkoutActivity(state: AndroidWorkoutActivityState): Promise<void> {
+  if (!ExpoWorkoutActivity) {
+    return Promise.resolve();
+  }
+
   return ExpoWorkoutActivity.startWorkoutActivity(state);
 }
 
 export function updateWorkoutActivity(state: AndroidWorkoutActivityState): Promise<void> {
+  if (!ExpoWorkoutActivity) {
+    return Promise.resolve();
+  }
+
   return ExpoWorkoutActivity.updateWorkoutActivity(state);
 }
 
 export function stopWorkoutActivity(): Promise<void> {
+  if (!ExpoWorkoutActivity) {
+    return Promise.resolve();
+  }
+
   return ExpoWorkoutActivity.stopWorkoutActivity();
 }
