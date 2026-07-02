@@ -266,6 +266,15 @@ type CalendarMenuItem = {
   tone: string;
 };
 
+type CalendarPromptCard = {
+  action: string;
+  description: string;
+  id: string;
+  privacy: "Private" | "Circle" | "Parent approval";
+  title: string;
+  tone: string;
+};
+
 const calendarMenuItems: CalendarMenuItem[] = [
   {
     description: "Default view, reminders, overlays",
@@ -308,6 +317,70 @@ const calendarMenuItems: CalendarMenuItem[] = [
     label: "Shared calendar permissions",
     mode: "settings",
     tone: "#22c55e",
+  },
+];
+
+const calendarViewModes = ["Month", "Week", "Day"];
+
+const personCircleFilters = ["Me", "Household", "Liam", "Caregiver"];
+
+const sharedTodoPreview: CalendarPromptCard[] = [
+  {
+    action: "Assign",
+    description: "Buy school-safe snacks before Friday. Shared only with Household.",
+    id: "todo-school-snacks",
+    privacy: "Circle",
+    title: "Child lunch prep",
+    tone: "#34C759",
+  },
+  {
+    action: "Mark done",
+    description: "Upload vaccine card photo after review. Document stays private until shared.",
+    id: "todo-vaccine-card",
+    privacy: "Private",
+    title: "Vaccine card",
+    tone: "#64748B",
+  },
+];
+
+const attendancePreview: CalendarPromptCard[] = [
+  {
+    action: "Respond",
+    description: "Caregiver pickup message needs Going, Maybe, Need help, Running late, or Seen.",
+    id: "attendance-pickup",
+    privacy: "Circle",
+    title: "Pickup response",
+    tone: "#22D3EE",
+  },
+];
+
+const parentApprovalPreview: CalendarPromptCard[] = [
+  {
+    action: "Review",
+    description: "Child-created sport event requires parent approval before sharing.",
+    id: "approval-soccer",
+    privacy: "Parent approval",
+    title: "Soccer practice request",
+    tone: "#FF8A3D",
+  },
+];
+
+const sportPlanningPreview: CalendarPromptCard[] = [
+  {
+    action: "Plan",
+    description: "Choose Soccer, Padel, Running, Cycling, or Custom. Invite people and keep route or health metrics private until shared.",
+    id: "sport-plan-day",
+    privacy: "Private",
+    title: "Plan sport day",
+    tone: "#FF6B35",
+  },
+  {
+    action: "Label",
+    description: "Unknown watch workout needs sport type, effort, hydration, and injury note review before adding to weekly goal.",
+    id: "sport-label-watch",
+    privacy: "Private",
+    title: "Label imported workout",
+    tone: "#FF8A3D",
   },
 ];
 
@@ -864,6 +937,97 @@ export default function CalendarScreen(): JSX.Element {
     );
   }
 
+  function renderPlanningCard(item: CalendarPromptCard): JSX.Element {
+    return (
+      <Pressable
+        accessibilityLabel={`${item.title}. ${item.privacy}. ${item.description}`}
+        accessibilityRole="button"
+        key={item.id}
+        onLongPress={() => setSheetMode("eventQuickActions")}
+        onPress={() => setSheetMode("eventDetails")}
+        style={({ pressed }) => [
+          styles.promptCard,
+          { backgroundColor: theme.eventCard, borderColor: theme.eventCardBorder, shadowColor: theme.eventCardShadow },
+          pressed && styles.localButtonPressed,
+        ]}
+      >
+        <View style={[styles.promptAccent, { backgroundColor: item.tone }]} />
+        <View style={styles.promptCopy}>
+          <View style={styles.promptTitleRow}>
+            <Text style={[styles.promptTitle, { color: theme.text }]}>{item.title}</Text>
+            <View style={[styles.promptPrivacyChip, { borderColor: theme.privacyChipBorder, backgroundColor: theme.privacyChip }]}>
+              <Text style={[styles.promptPrivacyText, { color: theme.privacyText }]}>{item.privacy}</Text>
+            </View>
+          </View>
+          <Text style={[styles.promptDescription, { color: theme.muted }]}>{item.description}</Text>
+        </View>
+        <Text style={[styles.promptAction, { color: item.tone }]}>{item.action}</Text>
+      </Pressable>
+    );
+  }
+
+  function renderCalendarPlanningSurface(): JSX.Element {
+    return (
+      <View style={styles.planningSurface}>
+        <View style={styles.segmentedControl}>
+          {calendarViewModes.map((mode) => (
+            <Pressable
+              accessibilityLabel={`${mode} calendar view`}
+              accessibilityRole="button"
+              key={mode}
+              onPress={() => undefined}
+              style={[
+                styles.segmentButton,
+                {
+                  backgroundColor: mode === "Month" ? theme.selected : theme.controlSurface,
+                  borderColor: theme.controlBorder,
+                },
+              ]}
+            >
+              <Text style={[styles.segmentText, { color: mode === "Month" ? theme.selectedText : theme.muted }]}>{mode}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.filterRail}>
+            {personCircleFilters.map((filter) => (
+              <Pressable
+                accessibilityLabel={`${filter} calendar filter`}
+                accessibilityRole="button"
+                key={filter}
+                onPress={() => setSheetMode("filter")}
+                style={[styles.filterRailChip, { backgroundColor: theme.controlSurface, borderColor: theme.controlBorder }]}
+              >
+                <Text style={[styles.filterRailText, { color: theme.text }]}>{filter}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </ScrollView>
+
+        <View style={styles.promptSection}>
+          <Text style={[styles.promptSectionTitle, { color: theme.text }]}>Shared to-dos</Text>
+          {sharedTodoPreview.map(renderPlanningCard)}
+        </View>
+
+        <View style={styles.promptSection}>
+          <Text style={[styles.promptSectionTitle, { color: theme.text }]}>Invitations and attendance</Text>
+          {attendancePreview.map(renderPlanningCard)}
+        </View>
+
+        <View style={styles.promptSection}>
+          <Text style={[styles.promptSectionTitle, { color: theme.text }]}>Parent approvals</Text>
+          {parentApprovalPreview.map(renderPlanningCard)}
+        </View>
+
+        <View style={styles.promptSection}>
+          <Text style={[styles.promptSectionTitle, { color: theme.text }]}>Sports planning</Text>
+          {sportPlanningPreview.map(renderPlanningCard)}
+        </View>
+      </View>
+    );
+  }
+
   return (
     <PageShell>
       <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -919,6 +1083,7 @@ export default function CalendarScreen(): JSX.Element {
           <Animated.View style={[styles.selectedDateHeader, inlineSelectedDateStyle]}>
             <SelectedDateNote dateLabel={formatFullDate(selectedDateKey)} onAdd={() => openQuickAdd()} />
           </Animated.View>
+          {renderCalendarPlanningSurface()}
           {renderAgenda()}
         </AnimatedScrollView>
 
@@ -1789,6 +1954,102 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 170,
     paddingTop: 0,
+  },
+  filterRail: {
+    flexDirection: "row",
+    gap: 8,
+    paddingBottom: 2,
+  },
+  filterRailChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  filterRailText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  planningSurface: {
+    gap: 12,
+    marginBottom: 16,
+    zIndex: 2,
+  },
+  promptAccent: {
+    alignSelf: "stretch",
+    borderRadius: 999,
+    width: 4,
+  },
+  promptAction: {
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  promptCard: {
+    alignItems: "center",
+    borderRadius: 16,
+    borderWidth: 1,
+    elevation: 3,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 72,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    shadowOffset: { height: 4, width: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 10,
+  },
+  promptCopy: {
+    flex: 1,
+    gap: 5,
+    minWidth: 0,
+  },
+  promptDescription: {
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17,
+  },
+  promptPrivacyChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  promptPrivacyText: {
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  promptSection: {
+    gap: 8,
+  },
+  promptSectionTitle: {
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  promptTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  promptTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  segmentedControl: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  segmentButton: {
+    alignItems: "center",
+    borderRadius: 999,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 38,
+    justifyContent: "center",
+  },
+  segmentText: {
+    fontSize: 12,
+    fontWeight: "900",
   },
   selectedDateHeader: {
     alignItems: "center",

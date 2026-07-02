@@ -19,6 +19,11 @@
     "@gorhom/bottom-sheet": "^5.2.14",
     "@heroui/react": "3.2.1",
     "@heroui/styles": "3.2.1",
+<<<<<<< Updated upstream
+=======
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@shopify/react-native-skia": "^2.6.6",
+>>>>>>> Stashed changes
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "expo": "~56.0.5",
@@ -27,6 +32,11 @@
     "expo-router": "~56.2.7",
     "expo-splash-screen": "~56.0.10",
     "expo-status-bar": "~56.0.4",
+<<<<<<< Updated upstream
+=======
+    "expo-widgets": "~56.0.19",
+    "expo-workout-activity": "file:modules/expo-workout-activity",
+>>>>>>> Stashed changes
     "heroui-native": "1.0.4",
     "lucide-react": "^1.21.0",
     "radix-ui": "^1.6.0",

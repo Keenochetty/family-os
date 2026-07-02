@@ -2,14 +2,22 @@ import type { JSX } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { PageShell } from "@/components/PageShell";
+<<<<<<< Updated upstream
+=======
+import { FitnessRealmRoute } from "@/features/fitness-v3/FitnessRealmRoute";
+>>>>>>> Stashed changes
 
 export default function FitnessScreen(): JSX.Element {
   return (
     <PageShell>
+<<<<<<< Updated upstream
       <View style={styles.screen}>
         <Text style={styles.title}>Fitness</Text>
         <Text style={styles.subtitle}>Fitness tracking will live here.</Text>
       </View>
+=======
+      <FitnessRealmRoute initialTab="today" />
+>>>>>>> Stashed changes
     </PageShell>
   );
 }

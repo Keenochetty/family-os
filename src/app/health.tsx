@@ -1,11 +1,11 @@
 import type { JSX } from "react";
-import { StyleSheet, View } from "react-native";
 
-import { HealthControlWidget } from "@/components/HealthControlWidget";
 import { PageShell } from "@/components/PageShell";
+import { HealthScreen as HealthScreenContent } from "@/features/health";
 
 export default function HealthScreen(): JSX.Element {
   return (
+<<<<<<< Updated upstream
     <PageShell>
       <View style={styles.screen}>
         <HealthControlWidget framed={false} title="Health Control" subtitle="Your modular health board" />
@@ -25,3 +25,10 @@ const styles = StyleSheet.create({
     width: "100%",
   },
 });
+=======
+    <PageShell title="Health">
+      <HealthScreenContent />
+    </PageShell>
+  );
+}
+>>>>>>> Stashed changes

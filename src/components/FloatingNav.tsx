@@ -1,7 +1,14 @@
+<<<<<<< Updated upstream
 import { router, usePathname } from "expo-router";
 import type { JSX } from "react";
 import { useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, useColorScheme, View } from "react-native";
+=======
+import { usePathname, useRouter, type Href } from "expo-router";
+import type { JSX } from "react";
+import { useEffect, useState } from "react";
+import { Pressable, StyleSheet, View, type ViewStyle } from "react-native";
+>>>>>>> Stashed changes
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -10,7 +17,7 @@ import Animated, {
 import Svg, { Path, Rect } from "react-native-svg";
 
 type NavItem = {
-  href: "/" | "/calendar" | "/scan" | "/health" | "/family-circle";
+  href: "/" | "/calendar" | "/scan" | "/health" | "/family";
   icon: "home" | "calendar" | "scan" | "heart" | "family";
   label: string;
 };
@@ -20,7 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/calendar", icon: "calendar", label: "Calendar" },
   { href: "/scan", icon: "scan", label: "Scan" },
   { href: "/health", icon: "heart", label: "Health" },
-  { href: "/family-circle", icon: "family", label: "Family Circle" },
+  { href: "/family", icon: "family", label: "Family" },
 ];
 
 const ICON_SIZE = 27;
@@ -158,6 +165,7 @@ function NavButton({
 export function FloatingNav(): JSX.Element {
   const pathname = usePathname();
   const [pressedHref, setPressedHref] = useState<NavItem["href"] | null>(null);
+<<<<<<< Updated upstream
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const activeColor = "#082f49";
@@ -174,6 +182,36 @@ export function FloatingNav(): JSX.Element {
         {NAV_ITEMS.map((item) => {
           const active = isActive(pathname, item.href);
           const highlighted = overrideHref === null ? active : overrideHref === item.href;
+=======
+  const { theme } = useAppTheme();
+  const activeColor = theme.nav.activeIcon;
+  const inactiveColor = theme.nav.inactiveIcon;
+  const isWorkoutSession = pathname.startsWith("/fitness/session/");
+
+  const overrideHref = pressedHref !== null && !isActive(pathname, pressedHref) ? pressedHref : null;
+
+  function handleNavPress(href: NavItem["href"]): void {
+    setPressedHref(null);
+    appRouter.replace(href as Href);
+  }
+
+  return (
+    <View pointerEvents="box-none" style={[styles.wrap, isWorkoutSession && styles.workoutSessionWrap]}>
+      {isWorkoutSession ? null : (
+      <View style={[styles.navOuterTray, { backgroundColor: theme.nav.navOuterTray, shadowColor: theme.shadowDeep }]}>
+        <View
+          style={[
+            styles.glassBar,
+            {
+              backgroundColor: theme.nav.navSurface,
+              borderColor: theme.borderSoft,
+            },
+          ]}
+        >
+          {NAV_ITEMS.map((item) => {
+            const active = isActive(pathname, item.href);
+            const highlighted = overrideHref === null ? active : overrideHref === item.href;
+>>>>>>> Stashed changes
 
           return (
             <NavButton
@@ -189,6 +227,7 @@ export function FloatingNav(): JSX.Element {
           );
         })}
       </View>
+      )}
     </View>
   );
 }
@@ -217,6 +256,13 @@ const styles = StyleSheet.create({
     left: 16,
     position: "absolute",
     right: 16,
+  },
+  workoutSessionWrap: {
+    alignItems: "flex-end",
+    bottom: "auto",
+    left: "auto",
+    right: 16,
+    top: 58,
   },
   glassBar: {
     ...glassSurface,
